@@ -18,10 +18,12 @@ log = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    def __init__(self, keywords: list[str], db_path: str = "data/xiaohongshu.db"):
+    def __init__(self, keywords: list[str], db_path: str = "data/xiaohongshu.db",
+                 sort_type: str = "综合"):
         self.keywords = keywords
         self.db = Database(db_path)
         self.daily_count = 0
+        self.sort_type = sort_type
         self._device = None
         self._actions = None
 
@@ -70,6 +72,12 @@ class Orchestrator:
         navigate_to_home(self.device)
         self.actions.search_keyword(keyword)
         time.sleep(2)
+
+        # 切换排序（默认"综合"不需要额外操作）
+        if self.sort_type != "综合":
+            if self.actions.select_sort(self.sort_type):
+                log.info(f"已切换排序: {self.sort_type}")
+                time.sleep(2)
 
         # 滚动列表，mitmproxy 在后台自动拦截 API 响应并写入 DB
         scroll_count = random.randint(*config.NOTES_PER_KEYWORD) // 4
@@ -167,10 +175,11 @@ def main():
     parser = argparse.ArgumentParser(description="小红书数据采集")
     parser.add_argument("keywords", nargs="+", help="搜索关键词列表")
     parser.add_argument("--limit", type=int, default=config.DAILY_NOTE_LIMIT, help="每日笔记上限")
+    parser.add_argument("--sort", default="综合", choices=["综合", "最新", "最热"], help="搜索排序方式")
     parser.add_argument("--db", default="data/xiaohongshu.db", help="数据库路径")
     args = parser.parse_args()
 
-    orc = Orchestrator(args.keywords, db_path=args.db)
+    orc = Orchestrator(args.keywords, db_path=args.db, sort_type=args.sort)
     orc.run(daily_limit=args.limit)
 
 

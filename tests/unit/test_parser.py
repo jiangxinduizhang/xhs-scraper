@@ -202,18 +202,18 @@ class TestParseNoteDetail:
 class TestParseComments:
     def test_returns_comment_items(self, comments_response):
         parser = XHSParser()
-        comments = parser.parse("/api/sns/v2/note/comments", comments_response)
+        comments = parser.parse("/api/sns/v5/note/comment/list", comments_response)
         assert all(isinstance(c, CommentItem) for c in comments)
 
     def test_skips_empty_id(self, comments_response):
         """fixture 中有一条 id='' 的评论，应被跳过"""
         parser = XHSParser()
-        comments = parser.parse("/api/sns/v2/note/comments", comments_response)
+        comments = parser.parse("/api/sns/v5/note/comment/list", comments_response)
         assert len(comments) == 3
 
     def test_comment_fields(self, comments_response):
         parser = XHSParser()
-        comment = parser.parse("/api/sns/v2/note/comments", comments_response)[0]
+        comment = parser.parse("/api/sns/v5/note/comment/list", comments_response)[0]
         assert comment.comment_id == "comment_001"
         assert comment.note_id == "6571234567890abcde1"
         assert comment.content == "好好看啊，请问是哪个品牌的？"
@@ -222,18 +222,36 @@ class TestParseComments:
     def test_reply_has_parent_id(self, comments_response):
         """comment_003 是对 comment_001 的回复"""
         parser = XHSParser()
-        comments = parser.parse("/api/sns/v2/note/comments", comments_response)
+        comments = parser.parse("/api/sns/v5/note/comment/list", comments_response)
         reply = next(c for c in comments if c.comment_id == "comment_003")
         assert reply.parent_comment_id == "comment_001"
 
     def test_top_comment_has_no_parent(self, comments_response):
         parser = XHSParser()
-        comments = parser.parse("/api/sns/v2/note/comments", comments_response)
+        comments = parser.parse("/api/sns/v5/note/comment/list", comments_response)
         top = next(c for c in comments if c.comment_id == "comment_001")
         assert top.parent_comment_id is None
 
     def test_sub_comments_path(self, comments_response):
-        """comments/sub 路径也应走评论解析"""
+        """comment/sub 路径也应走评论解析"""
         parser = XHSParser()
-        comments = parser.parse("/api/sns/v2/note/comments/sub", comments_response)
+        comments = parser.parse("/api/sns/v5/note/comment/sub", comments_response)
         assert len(comments) == 3
+
+    def test_v5_user_field(self):
+        """v5 格式用 user 字段（而非 user_info），time 字段（而非 create_time）"""
+        parser = XHSParser()
+        data = {"data": {"comments": [{
+            "id": "cmt_v5", "content": "v5评论",
+            "note_id": "note_v5",
+            "user": {"userid": "uid_v5", "nickname": "v5用户"},
+            "like_count": 10,
+            "time": 1766446738,
+            "target_comment": None
+        }]}}
+        comments = parser.parse("/api/sns/v5/note/comment/list", data)
+        assert len(comments) == 1
+        assert comments[0].author_id == "uid_v5"
+        assert comments[0].author_name == "v5用户"
+        assert comments[0].create_time == 1766446738
+        assert comments[0].note_id == "note_v5"

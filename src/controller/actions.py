@@ -129,6 +129,11 @@ class XHSActions:
         self.d.press("enter")
         time.sleep(random.uniform(2.0, 3.0))
 
+    def select_sort(self, sort_type: str = "最新") -> bool:
+        """在搜索结果页切换排序方式（综合/最新/最热）"""
+        tab = self.d(text=sort_type)
+        return self.tap_element(tab, timeout=3)
+
     # ─── 评论 ────────────────────────────────────────────────
 
     def open_comments(self) -> bool:

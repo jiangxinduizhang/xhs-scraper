@@ -64,7 +64,7 @@ class XHSParser:
             return self._parse_homefeed(data)
         elif "detailfeed" in path and "preload" not in path:
             return self._parse_note_detail(data)
-        elif "comments" in path:
+        elif "comment" in path:
             return self._parse_comments(data)
         return []
 
@@ -153,6 +153,10 @@ class XHSParser:
         return result
 
     def _parse_comments(self, data: dict) -> list:
+        """评论列表（实测 v5: /api/sns/v5/note/comment/list）
+        v5 格式: user 字段（非 user_info），time 字段（非 create_time），
+        note_id 在每条评论内部
+        """
         comments_data = (data.get("data") or {}).get("comments", [])
         note_id = (data.get("data") or {}).get("note_id", "")
         result = []
@@ -160,15 +164,17 @@ class XHSParser:
             comment_id = c.get("id", "")
             if not comment_id:
                 continue
+            # v5 用 "user"，旧版用 "user_info"
+            user = c.get("user") or c.get("user_info") or {}
             target = c.get("target_comment") or {}
             comment = CommentItem(
                 comment_id=comment_id,
-                note_id=note_id or c.get("note_id", ""),
+                note_id=c.get("note_id", "") or note_id,
                 content=c.get("content", ""),
-                author_id=c.get("user_info", {}).get("user_id", ""),
-                author_name=c.get("user_info", {}).get("nickname", ""),
+                author_id=user.get("userid") or user.get("user_id", ""),
+                author_name=user.get("nickname", ""),
                 liked_count=_parse_count(c.get("like_count", 0)),
-                create_time=c.get("create_time", 0),
+                create_time=c.get("time") or c.get("create_time", 0),
                 parent_comment_id=target.get("id") if target else None,
             )
             result.append(comment)

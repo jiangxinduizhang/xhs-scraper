@@ -96,7 +96,7 @@ class XHSAddon:
             return "homefeed"
         elif "detailfeed" in path:
             return "detailfeed"
-        elif "comments" in path:
+        elif "comment" in path:
             return "comments"
         return ""
 

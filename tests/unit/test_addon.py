@@ -175,7 +175,7 @@ class TestSourceDetection:
         mock_item.source = ""
         addon._parser.parse.return_value = [mock_item]
 
-        flow = make_flow("edith.xiaohongshu.com", "/api/sns/v2/note/comments", {"data": {}})
+        flow = make_flow("edith.xiaohongshu.com", "/api/sns/v5/note/comment/list", {"data": {}})
         with patch("os.getenv", return_value="false"):
             addon.response(flow)
 
@@ -195,7 +195,7 @@ class TestDetectSource:
         assert XHSAddon._detect_source("/api/sns/v1/note/detailfeed") == "detailfeed"
 
     def test_comments(self):
-        assert XHSAddon._detect_source("/api/sns/v2/note/comments") == "comments"
+        assert XHSAddon._detect_source("/api/sns/v5/note/comment/list") == "comments"
 
     def test_unknown(self):
         assert XHSAddon._detect_source("/api/something/else") == ""

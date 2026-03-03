@@ -25,10 +25,9 @@ TARGET_PATHS = [
     "/api/sns/v1/followings/reddot",   # 关注 feed（可选）
     # 笔记详情（edith.xiaohongshu.com）
     "/api/sns/v1/note/detailfeed",     # 帖子详情
-    # 评论（edith / so）—— 路径待抓包确认，保留多个候选
-    "/api/sns/v2/note/comments",
-    "/api/sns/v1/note/comments",
-    "/api/sns/v2/note/comments/sub",
+    # 评论（edith.xiaohongshu.com）—— 实测 v9.19.5 为 v5
+    "/api/sns/v5/note/comment/list",
+    "/api/sns/v5/note/comment/sub",
     # 用户笔记（edith.xiaohongshu.com）
     "/api/sns/v2/user/notes",
 ]
