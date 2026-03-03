@@ -1,0 +1,51 @@
+{
+  "success": true,
+  "data": {
+    "note_id": "6571234567890abcde1",
+    "comments": [
+      {
+        "id": "comment_001",
+        "content": "好好看啊，请问是哪个品牌的？",
+        "user_info": {
+          "user_id": "commenter_001",
+          "nickname": "爱买衣服的小鱼"
+        },
+        "like_count": 45,
+        "create_time": 1705123200000,
+        "target_comment": null
+      },
+      {
+        "id": "comment_002",
+        "content": "真的超级好看！已收藏！",
+        "user_info": {
+          "user_id": "commenter_002",
+          "nickname": "时尚追随者"
+        },
+        "like_count": 23,
+        "create_time": 1705126800000,
+        "target_comment": null
+      },
+      {
+        "id": "comment_003",
+        "content": "是ZARA的吧，我也买了一样的",
+        "user_info": {
+          "user_id": "commenter_003",
+          "nickname": "购物达人"
+        },
+        "like_count": 12,
+        "create_time": 1705130400000,
+        "target_comment": {
+          "id": "comment_001"
+        }
+      },
+      {
+        "id": "",
+        "content": "无 ID 评论应被跳过",
+        "user_info": {"user_id": "", "nickname": ""},
+        "like_count": 0,
+        "create_time": 0,
+        "target_comment": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+uiautomator2>=3.0.0
+mitmproxy>=10.0.0
+adbutils>=2.0.0
+pillow>=10.0.0
+python-dotenv>=1.0.0
