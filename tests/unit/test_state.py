@@ -94,14 +94,27 @@ class TestDetectPage:
             assert detect_page(mock_d) == PageState.HOME
 
     def test_comment_page_detected(self):
-        """评论页：在 NoteDetail activity 内，检测到 '发布评论' 元素则判断为 COMMENT"""
+        """评论页：NoteDetail activity + 发布评论 + 评论数 > 0 + RecyclerView"""
         mock_d = make_device(activity="NoteDetailActivity")
 
         def mock_selector(*args, **kwargs):
             m = MagicMock()
             desc_contains = kwargs.get("descriptionContains", "")
-            m.exists.return_value = "发布评论" in desc_contains
-            m.count = 0
+            desc = kwargs.get("description", "")
+            class_name = kwargs.get("className", "")
+            # 评论面板检测的四个条件全部满足
+            if "发布评论" in desc_contains:
+                m.exists.return_value = True
+            elif desc == "评论框":
+                m.exists.return_value = True
+            elif "评论 " in desc_contains:
+                m.count = 3  # 有评论数
+                m.exists.return_value = True
+            elif "RecyclerView" in class_name:
+                m.exists.return_value = True
+            else:
+                m.exists.return_value = False
+                m.count = 0
             return m
 
         mock_d.side_effect = mock_selector

@@ -40,8 +40,8 @@ def detect_page(d: u2.Device) -> PageState:
     if "NoteDetail" in activity or "notedetail" in activity.lower():
         # 详情页内：判断评论面板是否展开
         # 展开后会有可滚动的评论列表（NestedScrollView 或 RecyclerView 下有评论）
-        if d(descriptionContains="发布评论").exists(timeout=0.5) or \
-           d(description="评论框").exists(timeout=0.5) and \
+        if (d(descriptionContains="发布评论").exists(timeout=0.5) or
+            d(description="评论框").exists(timeout=0.5)) and \
            d(descriptionContains="评论 ").count > 0 and \
            d(className="androidx.recyclerview.widget.RecyclerView").exists(timeout=0.5):
             return PageState.COMMENT

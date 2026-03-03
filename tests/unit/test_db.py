@@ -19,7 +19,7 @@ def db():
     os.unlink(path)
 
 
-def make_note(note_id="test_001", liked=100, note_type="normal"):
+def make_note(note_id="test_001", liked=100, note_type="normal", keyword="", source=""):
     return NoteItem(
         note_id=note_id,
         title=f"测试笔记 {note_id}",
@@ -32,6 +32,8 @@ def make_note(note_id="test_001", liked=100, note_type="normal"):
         cover_url="https://example.com/cover.jpg",
         note_type=note_type,
         topics=["测试", "单元测试"],
+        keyword=keyword,
+        source=source,
     )
 
 
@@ -140,6 +142,25 @@ class TestSaveNotes:
         assert note_count == 1
         assert comment_count == 1
 
+    def test_keyword_saved(self, db):
+        db.save([make_note("kw_001", keyword="穿搭", source="search")])
+        row = db.conn.execute("SELECT keyword, source FROM notes WHERE note_id='kw_001'").fetchone()
+        assert row["keyword"] == "穿搭"
+        assert row["source"] == "search"
+
+    def test_keyword_from_save_param(self, db):
+        """save() 的 keyword/source 参数传给没有自带 keyword 的 item"""
+        db.save([make_note("kw_002")], keyword="美食", source="homefeed")
+        row = db.conn.execute("SELECT keyword, source FROM notes WHERE note_id='kw_002'").fetchone()
+        assert row["keyword"] == "美食"
+        assert row["source"] == "homefeed"
+
+    def test_item_keyword_overrides_param(self, db):
+        """item 自带的 keyword 优先于 save() 参数"""
+        db.save([make_note("kw_003", keyword="旅行")], keyword="美食")
+        row = db.conn.execute("SELECT keyword FROM notes WHERE note_id='kw_003'").fetchone()
+        assert row["keyword"] == "旅行"
+
 
 # ─── 评论存储 ────────────────────────────────────────────────
 
@@ -172,19 +193,19 @@ class TestSaveComments:
 
 class TestGetUncrawledNotes:
     def test_returns_notes_without_comments(self, db):
-        db.save([make_note("note_001"), make_note("note_002")])
+        db.save([make_note("note_001", keyword="穿搭"), make_note("note_002", keyword="穿搭")])
         db.save([make_comment(note_id="note_001")])  # 只有 note_001 有评论
         uncrawled = db.get_uncrawled_notes("穿搭", limit=10)
         assert "note_002" in uncrawled
         assert "note_001" not in uncrawled
 
     def test_limit_respected(self, db):
-        db.save([make_note(f"note_{i}") for i in range(10)])
+        db.save([make_note(f"note_{i}", keyword="穿搭") for i in range(10)])
         uncrawled = db.get_uncrawled_notes("穿搭", limit=3)
         assert len(uncrawled) <= 3
 
     def test_empty_when_all_have_comments(self, db):
-        db.save([make_note("note_001")])
+        db.save([make_note("note_001", keyword="穿搭")])
         db.save([make_comment(note_id="note_001")])
         uncrawled = db.get_uncrawled_notes("穿搭", limit=10)
         assert uncrawled == []
@@ -192,3 +213,15 @@ class TestGetUncrawledNotes:
     def test_returns_empty_when_no_notes(self, db):
         uncrawled = db.get_uncrawled_notes("穿搭", limit=10)
         assert uncrawled == []
+
+    def test_filters_by_keyword(self, db):
+        """只返回匹配 keyword 的笔记"""
+        db.save([make_note("note_a", keyword="穿搭"), make_note("note_b", keyword="美食")])
+        uncrawled = db.get_uncrawled_notes("穿搭", limit=10)
+        assert "note_a" in uncrawled
+        assert "note_b" not in uncrawled
+
+    def test_different_keyword_returns_different_notes(self, db):
+        db.save([make_note("note_a", keyword="穿搭"), make_note("note_b", keyword="美食")])
+        assert db.get_uncrawled_notes("穿搭", limit=10) == ["note_a"]
+        assert db.get_uncrawled_notes("美食", limit=10) == ["note_b"]

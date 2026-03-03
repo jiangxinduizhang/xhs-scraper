@@ -75,7 +75,7 @@ class TestAddonResponse:
             addon.response(flow)
 
         addon._parser.parse.assert_called_once()
-        addon._db.save.assert_called_once_with([mock_item])
+        addon._db.save.assert_called_once_with([mock_item], source="search")
 
     def test_skips_non_target_flow(self):
         addon = make_addon()
@@ -125,6 +125,80 @@ class TestAddonResponse:
 
         content = raw_files[0].read_text()
         assert '"key": "value"' in content
+
+
+# ─── source 字段设置 ──────────────────────────────────────────
+
+class TestSourceDetection:
+    def test_search_source(self):
+        addon = make_addon()
+        mock_item = MagicMock()
+        mock_item.source = ""
+        addon._parser.parse.return_value = [mock_item]
+
+        flow = make_flow("so.xiaohongshu.com", "/api/sns/v10/search/notes?keyword=穿搭", {"data": {}})
+        with patch("os.getenv", return_value="false"):
+            addon.response(flow)
+
+        assert mock_item.source == "search"
+        addon._db.save.assert_called_once()
+        _, kwargs = addon._db.save.call_args
+        assert kwargs["source"] == "search"
+
+    def test_homefeed_source(self):
+        addon = make_addon()
+        mock_item = MagicMock()
+        mock_item.source = ""
+        addon._parser.parse.return_value = [mock_item]
+
+        flow = make_flow("rec.xiaohongshu.com", "/api/sns/v6/homefeed", {"data": []})
+        with patch("os.getenv", return_value="false"):
+            addon.response(flow)
+
+        assert mock_item.source == "homefeed"
+
+    def test_detailfeed_source(self):
+        addon = make_addon()
+        mock_item = MagicMock()
+        mock_item.source = ""
+        addon._parser.parse.return_value = [mock_item]
+
+        flow = make_flow("edith.xiaohongshu.com", "/api/sns/v1/note/detailfeed", {"data": {}})
+        with patch("os.getenv", return_value="false"):
+            addon.response(flow)
+
+        assert mock_item.source == "detailfeed"
+
+    def test_comments_source(self):
+        addon = make_addon()
+        mock_item = MagicMock()
+        mock_item.source = ""
+        addon._parser.parse.return_value = [mock_item]
+
+        flow = make_flow("edith.xiaohongshu.com", "/api/sns/v2/note/comments", {"data": {}})
+        with patch("os.getenv", return_value="false"):
+            addon.response(flow)
+
+        assert mock_item.source == "comments"
+
+
+# ─── _detect_source 静态方法 ─────────────────────────────────
+
+class TestDetectSource:
+    def test_search(self):
+        assert XHSAddon._detect_source("/api/sns/v10/search/notes") == "search"
+
+    def test_homefeed(self):
+        assert XHSAddon._detect_source("/api/sns/v6/homefeed") == "homefeed"
+
+    def test_detailfeed(self):
+        assert XHSAddon._detect_source("/api/sns/v1/note/detailfeed") == "detailfeed"
+
+    def test_comments(self):
+        assert XHSAddon._detect_source("/api/sns/v2/note/comments") == "comments"
+
+    def test_unknown(self):
+        assert XHSAddon._detect_source("/api/something/else") == ""
 
 
 # ─── 懒加载属性 ──────────────────────────────────────────────

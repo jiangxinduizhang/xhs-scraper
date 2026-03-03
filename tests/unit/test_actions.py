@@ -159,6 +159,44 @@ class TestOpenComments:
         assert result is False
 
 
+# ─── tap_nth_card ─────────────────────────────────────────────
+
+class TestTapNthCard:
+    def test_first_card_left_column(self, actions, device):
+        """index=0 → 左列"""
+        with patch("time.sleep"):
+            result = actions.tap_nth_card(0)
+        assert result is True
+        device.click.assert_called_once()
+        x, y = device.click.call_args[0]
+        assert x < SCREEN_W // 2, "第0张应在左列"
+
+    def test_second_card_right_column(self, actions, device):
+        """index=1 → 右列"""
+        with patch("time.sleep"):
+            result = actions.tap_nth_card(1)
+        assert result is True
+        x, y = device.click.call_args[0]
+        assert x > SCREEN_W // 2, "第1张应在右列"
+
+    def test_returns_false_when_out_of_screen(self, actions, device):
+        """超出可视区域返回 False"""
+        with patch("time.sleep"):
+            result = actions.tap_nth_card(10)
+        assert result is False
+        device.click.assert_not_called()
+
+    def test_row_increases_y(self, actions, device):
+        """第二行 y 应大于第一行"""
+        ys = []
+        for idx in [0, 2]:
+            device.click.reset_mock()
+            with patch("time.sleep"):
+                actions.tap_nth_card(idx)
+            ys.append(device.click.call_args[0][1])
+        assert ys[1] > ys[0], "第二行 y 应更大"
+
+
 # ─── scroll_comments ─────────────────────────────────────────
 
 class TestScrollComments:

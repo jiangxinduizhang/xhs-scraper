@@ -68,8 +68,12 @@ class XHSAddon:
         try:
             items = self.parser.parse(path, data)
             if items:
-                self.db.save(items)
-                log.info(f"已保存 {len(items)} 条: {path}")
+                source = self._detect_source(path)
+                for item in items:
+                    if hasattr(item, 'source'):
+                        item.source = source
+                self.db.save(items, source=source)
+                log.info(f"已保存 {len(items)} 条 [{source}]: {path}")
         except Exception as e:
             log.error(f"解析/存储失败 {path}: {e}")
 
@@ -82,6 +86,19 @@ class XHSAddon:
             return False
         path = flow.request.path.split("?")[0]
         return any(path.startswith(p) for p in config.TARGET_PATHS)
+
+    @staticmethod
+    def _detect_source(path: str) -> str:
+        """根据 API 路径判断数据来源"""
+        if "search" in path:
+            return "search"
+        elif "homefeed" in path:
+            return "homefeed"
+        elif "detailfeed" in path:
+            return "detailfeed"
+        elif "comments" in path:
+            return "comments"
+        return ""
 
     def _save_raw(self, path: str, data: dict):
         """保存原始响应到 JSONL（调试 / 生成 fixture 用）"""

@@ -42,13 +42,13 @@ class Orchestrator:
 
     def run(self, daily_limit: int = None):
         """启动抓取，依次处理所有关键词"""
-        limit = daily_limit or config.DAILY_NOTE_LIMIT
+        self._limit = daily_limit or config.DAILY_NOTE_LIMIT
         launch_app(self.device, fresh_start=True)
         time.sleep(2)
 
         for keyword in self.keywords:
-            if self.daily_count >= limit:
-                log.info(f"已达每日上限 {limit}，停止")
+            if self.daily_count >= self._limit:
+                log.info(f"已达每日上限 {self._limit}，停止")
                 break
 
             try:
@@ -76,42 +76,66 @@ class Orchestrator:
         self.actions.scroll_feed(count=scroll_count)
         time.sleep(3)  # 给 mitmproxy 写入缓冲时间
 
+        # 按屏幕位置依次点击可见卡片（不依赖 resourceId）
+        # 每次滑动后重置 card_index，因为 tap_nth_card 基于当前可视区域
         target = random.randint(*config.NOTES_PER_KEYWORD)
-        note_ids = self.db.get_uncrawled_notes(keyword, limit=target)
+        crawled = 0
+        card_index = 0
+        max_rounds = target * 2  # 防止死循环
 
-        for note_id in note_ids:
-            if self.daily_count >= config.DAILY_NOTE_LIMIT:
+        for _ in range(max_rounds):
+            if crawled >= target or self.daily_count >= self._limit:
                 break
-            try:
-                self._crawl_note(note_id)
+
+            success = self._crawl_visible_card(card_index)
+            if success:
+                crawled += 1
                 self.daily_count += 1
-                log.debug(f"完成笔记: {note_id} (今日: {self.daily_count})")
-            except Exception as e:
-                log.warning(f"笔记 {note_id} 失败: {e}")
+                log.debug(f"完成卡片 #{card_index} (关键词: {keyword}, 今日: {self.daily_count})")
 
-        self.db.finish_task(task_id, total_notes=len(note_ids))
-        log.info(f"完成: {keyword}，采集 {len(note_ids)} 条")
+            card_index += 1
+            # 每处理完一行（2张卡片）后滚动并重置 index
+            if card_index >= 2:
+                self.actions.swipe_up()
+                time.sleep(random.uniform(1.0, 2.0))
+                card_index = 0
 
-    def _crawl_note(self, note_id: str):
-        """进入笔记详情，采集评论后返回列表"""
-        note_card = self.device(resourceId=f"com.xingin.xhs:id/note_{note_id}")
-        if not note_card.exists(timeout=2):
-            log.debug(f"笔记卡片未找到: {note_id}")
-            return
+        self.db.finish_task(task_id, total_notes=crawled)
+        log.info(f"完成: {keyword}，采集 {crawled} 条")
 
-        self.actions.tap_element(note_card)
-        self.actions.wait_for_page_load()
+    def _crawl_visible_card(self, card_index: int) -> bool:
+        """点击第 N 个可见卡片，采集评论后返回。成功返回 True"""
+        from src.controller.state import detect_page, PageState
+
+        if not self.actions.tap_nth_card(card_index):
+            log.debug(f"卡片 #{card_index} 点击失败")
+            return False
+
+        # 验证是否进入详情页（COMMENT 也是详情页内状态）
+        page = detect_page(self.device)
+        if page not in (PageState.NOTE_DETAIL, PageState.COMMENT):
+            log.debug(f"卡片 #{card_index} 未进入详情页 (当前: {page})")
+            # 仍在搜索结果页则不 back，避免退出搜索
+            if page not in (PageState.SEARCH_RESULT, PageState.SEARCH_INPUT):
+                self.actions.tap_back()
+            return False
 
         # 模拟阅读停留
         time.sleep(random.uniform(3.0, 8.0))
 
-        # 打开评论并滚动采集
-        if self.actions.open_comments():
+        # 如果还没在评论状态，尝试打开评论
+        if page != PageState.COMMENT and self.actions.open_comments():
             count = random.randint(*config.COMMENTS_SCROLL_RANGE)
             self.actions.scroll_comments(count)
             self.actions.tap_back()  # 关闭评论
+        elif page == PageState.COMMENT:
+            # 已经在评论状态，直接滚动采集
+            count = random.randint(*config.COMMENTS_SCROLL_RANGE)
+            self.actions.scroll_comments(count)
 
         self.actions.tap_back()  # 返回列表
+        time.sleep(random.uniform(0.5, 1.0))
+        return True
 
     # ─── 异常恢复 ────────────────────────────────────────────
 

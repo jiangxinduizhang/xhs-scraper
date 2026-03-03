@@ -37,6 +37,8 @@ class NoteItem:
     cover_url: str
     note_type: str                          # normal / video
     topics: list = field(default_factory=list)
+    keyword: str = ""
+    source: str = ""                        # search / homefeed / detailfeed
     crawled_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -68,7 +70,7 @@ class XHSParser:
 
     def _parse_search_notes(self, data: dict) -> list:
         """search/notes: data.data.items[].note（实测 v10 格式）"""
-        items = data.get("data", {}).get("items", [])
+        items = (data.get("data") or {}).get("items", [])
         result = []
         for item in items:
             if item.get("model_type") != "note":
@@ -151,8 +153,8 @@ class XHSParser:
         return result
 
     def _parse_comments(self, data: dict) -> list:
-        comments_data = data.get("data", {}).get("comments", [])
-        note_id = data.get("data", {}).get("note_id", "")
+        comments_data = (data.get("data") or {}).get("comments", [])
+        note_id = (data.get("data") or {}).get("note_id", "")
         result = []
         for c in comments_data:
             comment_id = c.get("id", "")

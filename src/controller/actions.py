@@ -79,6 +79,29 @@ class XHSActions:
         self.d.press("back")
         time.sleep(random.uniform(*config.OP_DELAY_RANGE))
 
+    # ─── 卡片定位 ──────────────────────────────────────────────
+
+    def tap_nth_card(self, index: int) -> bool:
+        """点击搜索结果页第 N 个可见卡片（双列瀑布流，基于坐标定位）
+
+        布局假设：双列瀑布流，左列 x=25%，右列 x=75%
+        第一行 y 从屏幕 25% 开始，行高约 35% 屏幕高度
+        """
+        col = index % 2          # 0=左列, 1=右列
+        row = index // 2         # 第几行
+
+        x = int(self.width * (0.25 if col == 0 else 0.75))
+        # 首行 y=35%，每行递增 35%（但超出屏幕的行需要先滚动）
+        y = int(self.height * (0.35 + row * 0.35))
+
+        if y >= self.height * 0.85:
+            # 超出可视区域
+            return False
+
+        self.tap(x, y, jitter=10)
+        time.sleep(random.uniform(1.0, 2.0))
+        return True
+
     # ─── 搜索 ────────────────────────────────────────────────
 
     def search_keyword(self, keyword: str):
@@ -122,8 +145,8 @@ class XHSActions:
     # ─── 等待 ────────────────────────────────────────────────
 
     def wait_for_page_load(self, timeout: float = 5.0):
-        """等待加载动画消失"""
-        loading = self.d(resourceId="com.xingin.xhs:id/loading")
+        """等待加载动画消失（不用 resourceId，XHS 已混淆）"""
+        loading = self.d(className="android.widget.ProgressBar")
         if loading.exists(timeout=1):
             loading.wait_gone(timeout=timeout)
         time.sleep(random.uniform(0.5, 1.0))
