@@ -68,6 +68,15 @@ class XHSParser:
             return self._parse_comments(data)
         return []
 
+    def _get_user_info(self, obj: dict) -> tuple[str, str]:
+        """统一提取作者 ID 和昵称"""
+        # 有时是 user，有时是 user_info
+        user = obj.get("user") or obj.get("user_info") or {}
+        # 有时是 userid，有时是 user_id
+        author_id = user.get("userid") or user.get("user_id") or ""
+        author_name = user.get("nickname") or user.get("name") or ""
+        return author_id, author_name
+
     def _parse_search_notes(self, data: dict) -> list:
         """search/notes: data.data.items[].note（实测 v10 格式）"""
         items = (data.get("data") or {}).get("items", [])
@@ -81,12 +90,13 @@ class XHSParser:
                 continue
             imgs = note.get("images_list", [])
             cover = imgs[0].get("url", "") if imgs else ""
+            author_id, author_name = self._get_user_info(note)
             result.append(NoteItem(
                 note_id=note_id,
                 title=note.get("title", ""),
                 desc=note.get("desc", ""),
-                author_id=note.get("user", {}).get("userid", ""),
-                author_name=note.get("user", {}).get("nickname", ""),
+                author_id=author_id,
+                author_name=author_name,
                 liked_count=_parse_count(note.get("liked_count", 0)),
                 collected_count=_parse_count(note.get("collected_count", 0)),
                 comment_count=_parse_count(note.get("comments_count", 0)),
@@ -108,12 +118,13 @@ class XHSParser:
                 continue
             imgs = item.get("images_list", [])
             cover = imgs[0].get("url", "") if imgs else ""
+            author_id, author_name = self._get_user_info(item)
             result.append(NoteItem(
                 note_id=note_id,
                 title=item.get("title") or item.get("name", ""),
                 desc=item.get("desc", ""),
-                author_id=item.get("user", {}).get("userid", ""),
-                author_name=item.get("user", {}).get("nickname", ""),
+                author_id=author_id,
+                author_name=author_name,
                 liked_count=_parse_count(item.get("likes", 0)),
                 collected_count=0,   # homefeed 不提供
                 comment_count=0,     # homefeed 不提供
@@ -135,14 +146,14 @@ class XHSParser:
             cover = ""
             if imgs and isinstance(imgs[0], dict):
                 cover = imgs[0].get("url", "")
-            user = card.get("user", {})
+            author_id, author_name = self._get_user_info(card)
             interact = card.get("interact_info", {})
             result.append(NoteItem(
                 note_id=note_id,
                 title=card.get("title", ""),
                 desc=card.get("desc", ""),
-                author_id=user.get("userid") or user.get("user_id", ""),
-                author_name=user.get("nickname", ""),
+                author_id=author_id,
+                author_name=author_name,
                 liked_count=_parse_count(interact.get("liked_count", 0)),
                 collected_count=_parse_count(interact.get("collected_count", 0)),
                 comment_count=_parse_count(interact.get("comment_count", 0)),
@@ -153,10 +164,7 @@ class XHSParser:
         return result
 
     def _parse_comments(self, data: dict) -> list:
-        """评论列表（实测 v5: /api/sns/v5/note/comment/list）
-        v5 格式: user 字段（非 user_info），time 字段（非 create_time），
-        note_id 在每条评论内部
-        """
+        """评论列表（实测 v5: /api/sns/v5/note/comment/list）"""
         comments_data = (data.get("data") or {}).get("comments", [])
         note_id = (data.get("data") or {}).get("note_id", "")
         result = []
@@ -164,15 +172,14 @@ class XHSParser:
             comment_id = c.get("id", "")
             if not comment_id:
                 continue
-            # v5 用 "user"，旧版用 "user_info"
-            user = c.get("user") or c.get("user_info") or {}
+            author_id, author_name = self._get_user_info(c)
             target = c.get("target_comment") or {}
             comment = CommentItem(
                 comment_id=comment_id,
                 note_id=c.get("note_id", "") or note_id,
                 content=c.get("content", ""),
-                author_id=user.get("userid") or user.get("user_id", ""),
-                author_name=user.get("nickname", ""),
+                author_id=author_id,
+                author_name=author_name,
                 liked_count=_parse_count(c.get("like_count", 0)),
                 create_time=c.get("time") or c.get("create_time", 0),
                 parent_comment_id=target.get("id") if target else None,

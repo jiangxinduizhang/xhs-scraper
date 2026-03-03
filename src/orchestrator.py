@@ -26,6 +26,7 @@ class Orchestrator:
         self.sort_type = sort_type
         self._device = None
         self._actions = None
+        self._midscene = None
 
     @property
     def device(self):
@@ -39,6 +40,16 @@ class Orchestrator:
         if self._actions is None:
             self._actions = XHSActions(self.device)
         return self._actions
+
+    @property
+    def midscene(self):
+        """懒加载 Midscene 处理器"""
+        if self._midscene is None:
+            from src.midscene.bridge import MidsceneBridge
+            from src.midscene.handlers import MidsceneHandler
+            bridge = MidsceneBridge(self.device.serial)
+            self._midscene = MidsceneHandler(self.device, bridge)
+        return self._midscene
 
     # ─── 主运行循环 ──────────────────────────────────────────
 
@@ -148,16 +159,21 @@ class Orchestrator:
     # ─── 异常恢复 ────────────────────────────────────────────
 
     def _recover(self):
-        """异常后尝试恢复到首页"""
+        """异常后尝试恢复到首页 (带 Midscene 视觉辅助)"""
         log.info("尝试恢复到首页...")
         try:
+            # 1. 视觉异常处理 (验证码、未知弹窗)
+            self.midscene.handle()
+            
+            # 2. 尝试常规导航回首页
             navigate_to_home(self.device)
-        except Exception:
+        except Exception as e:
+            log.warning(f"常规恢复失败: {e}，尝试强制重启 APP")
             try:
                 launch_app(self.device, fresh_start=True)
                 time.sleep(3)
-            except Exception as e:
-                log.error(f"恢复失败: {e}")
+            except Exception as inner_e:
+                log.error(f"严重异常：最终恢复失败: {inner_e}")
 
 
 # ─── CLI 入口 ────────────────────────────────────────────────

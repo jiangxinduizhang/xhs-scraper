@@ -1,0 +1,9 @@
+{
+  "name": "xhs-midscene",
+  "version": "1.0.0",
+  "description": "小红书采集 - Midscene 异常处理层",
+  "main": "runner.js",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0"
+  }
+}
