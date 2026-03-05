@@ -45,9 +45,29 @@ class XHSActions:
         time.sleep(random.uniform(*config.OP_DELAY_RANGE))
 
     def scroll_feed(self, count: int = 5):
-        """滚动列表，偶尔加入长停顿模拟阅读"""
-        for _ in range(count):
+        """滚动列表，混入回滚/停顿/变速等人类行为避免触发反爬"""
+        for i in range(count):
             self.swipe_up()
+
+            # 每 3~6 次滑动：回滚一小段再继续（模拟"往回看了一眼"）
+            if i > 0 and i % random.randint(3, 6) == 0:
+                time.sleep(random.uniform(0.3, 0.8))
+                self.swipe_down(distance_ratio=random.uniform(0.1, 0.25))
+                time.sleep(random.uniform(0.5, 1.5))
+                self.swipe_up(distance_ratio=random.uniform(0.15, 0.3))
+
+            # 每 8~12 次滑动：快速滚到顶部再滑回来（破 loading 卡住）
+            if i > 0 and i % random.randint(8, 12) == 0:
+                log.debug("scroll_feed: 回到顶部再滑下来")
+                for _ in range(3):
+                    self.swipe_down(distance_ratio=random.uniform(0.5, 0.7))
+                    time.sleep(random.uniform(0.2, 0.4))
+                time.sleep(random.uniform(1.0, 2.0))
+                for _ in range(3):
+                    self.swipe_up(distance_ratio=random.uniform(0.5, 0.7))
+                    time.sleep(random.uniform(0.2, 0.4))
+
+            # 随机长停顿（模拟阅读）
             if random.random() < config.READ_PAUSE_PROBABILITY:
                 time.sleep(random.uniform(*config.READ_PAUSE_RANGE))
 
@@ -55,6 +75,45 @@ class XHSActions:
         """滚动评论列表"""
         for _ in range(count):
             self.swipe_up(distance_ratio=random.uniform(0.3, 0.5))
+
+    def fling_load(self, rounds: int = 3):
+        """快速上下翻飞加载列表，触发尽可能多的 API 分页请求
+
+        每轮：快速 fling 到底 → 短暂停留 → fling 回顶部 → 短暂停留
+        mitmproxy 在后台拦截所有 search/notes 分页响应并写入 DB。
+        """
+        cx = self.width // 2
+
+        def _fling_down(n: int):
+            for _ in range(n):
+                jx = cx + random.randint(-20, 20)
+                self.d.swipe(jx, int(self.height * 0.80), jx, int(self.height * 0.15),
+                             duration=random.uniform(0.15, 0.25))
+                # 每次 fling 后等一下让 API 加载触发
+                time.sleep(random.uniform(0.8, 1.5))
+
+        def _fling_up(n: int):
+            for _ in range(n):
+                jx = cx + random.randint(-20, 20)
+                self.d.swipe(jx, int(self.height * 0.15), jx, int(self.height * 0.80),
+                             duration=random.uniform(0.15, 0.25))
+                time.sleep(random.uniform(0.3, 0.6))
+
+        for r in range(rounds):
+            flings = random.randint(5, 8)
+            log.info(f"fling_load: 第 {r+1}/{rounds} 轮，向下 {flings} 次")
+            _fling_down(flings)
+            time.sleep(random.uniform(1.0, 2.0))
+
+            flings_back = random.randint(4, 7)
+            log.info(f"fling_load: 回顶 {flings_back} 次")
+            _fling_up(flings_back)
+            time.sleep(random.uniform(1.0, 2.5))
+
+        # 最后回到列表顶部
+        _fling_up(random.randint(6, 10))
+        time.sleep(1)
+        log.info("fling_load: 完成，已回到顶部")
 
     # ─── 点击 ────────────────────────────────────────────────
 
@@ -90,6 +149,11 @@ class XHSActions:
         col = index % 2          # 0=左列, 1=右列
         row = index // 2         # 第几行
 
+        # 左列存在"相关搜索"卡片时跳过，避免跳转到不相关搜索
+        if col == 0 and self.d(text="相关搜索").exists(timeout=0.5):
+            log.debug("左列检测到'相关搜索'卡片，跳过")
+            return False
+
         x = int(self.width * (0.25 if col == 0 else 0.75))
         # 首行 y=35%，每行递增 35%（但超出屏幕的行需要先滚动）
         y = int(self.height * (0.35 + row * 0.35))
@@ -113,17 +177,28 @@ class XHSActions:
             self.tap(self.width // 2, int(self.height * 0.06))
         time.sleep(random.uniform(0.5, 1.0))
 
-        # 逐字输入模拟人工打字
-        search_input = self.d(focused=True, className="android.widget.EditText")
-        if not search_input.exists(timeout=3):
-            search_input = self.d(className="android.widget.EditText")
-        if search_input.exists(timeout=2):
+        # 点击输入框确保聚焦（搜索页可能默认不聚焦）
+        search_input = self.d(className="android.widget.EditText")
+        if search_input.exists(timeout=3):
+            search_input.click()
+            time.sleep(0.3)
             search_input.clear_text()
+            time.sleep(0.2)
+
+            # 逐字输入模拟人工打字
             current = ""
             for char in keyword:
                 current += char
                 search_input.set_text(current)
                 time.sleep(random.uniform(*config.TYPING_DELAY_RANGE))
+
+            # 验证输入内容（get_text 可能含 hint 前缀如 "搜索, "）
+            time.sleep(0.2)
+            actual = search_input.get_text()
+            if keyword not in actual:
+                log.warning(f"搜索输入不匹配: 期望={keyword!r}, 实际={actual!r}，强制修正")
+                search_input.set_text(keyword)
+                time.sleep(0.3)
 
         time.sleep(random.uniform(0.3, 0.6))
         self.d.press("enter")
@@ -155,3 +230,18 @@ class XHSActions:
         if loading.exists(timeout=1):
             loading.wait_gone(timeout=timeout)
         time.sleep(random.uniform(0.5, 1.0))
+
+    # ─── 随机浏览 ────────────────────────────────────────────
+
+    def random_browse(self):
+        """偶尔执行非采集操作增加真实感"""
+        action = random.choice(["swipe_down_then_up", "long_read", "skip"])
+        if action == "swipe_down_then_up":
+            # 小幅下滑再上滑，模拟"往回看了一下"
+            self.swipe_down(distance_ratio=0.2)
+            time.sleep(random.uniform(0.5, 1.0))
+            self.swipe_up(distance_ratio=0.2)
+        elif action == "long_read":
+            # 长时间停留，模拟"仔细阅读"
+            time.sleep(random.uniform(5.0, 15.0))
+        # skip = do nothing

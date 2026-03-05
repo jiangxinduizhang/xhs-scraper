@@ -10,7 +10,7 @@ import logging
 
 from src import config
 from src.controller.actions import XHSActions
-from src.controller.device import connect_device, launch_app
+from src.controller.device import connect_device, launch_app, preflight_check
 from src.controller.state import navigate_to_home
 from src.storage.db import Database
 
@@ -56,12 +56,27 @@ class Orchestrator:
     def run(self, daily_limit: int = None):
         """启动抓取，依次处理所有关键词"""
         self._limit = daily_limit or config.DAILY_NOTE_LIMIT
+
+        # 检查是否在工作时间窗口内
+        self._wait_for_work_hours()
+
+        # 代理链路预检
+        preflight_check()
+
         launch_app(self.device, fresh_start=True)
         time.sleep(2)
+
+        session_start = time.time()
 
         for keyword in self.keywords:
             if self.daily_count >= self._limit:
                 log.info(f"已达每日上限 {self._limit}，停止")
+                break
+
+            # 检查是否超过单次会话最大时长
+            elapsed = time.time() - session_start
+            if elapsed >= config.SESSION_MAX_DURATION:
+                log.info(f"会话已达最大时长 {config.SESSION_MAX_DURATION}s，停止本次会话")
                 break
 
             try:
@@ -73,6 +88,25 @@ class Orchestrator:
             delay = random.uniform(*config.INTER_KEYWORD_DELAY)
             log.info(f"等待 {delay:.0f}s 后处理下一个关键词...")
             time.sleep(delay)
+
+    def _wait_for_work_hours(self):
+        """若当前不在工作时段则等待到开始时间"""
+        import datetime
+        start_h, end_h = config.WORK_HOURS
+        now = datetime.datetime.now()
+        current_h = now.hour
+        if current_h < start_h or current_h >= end_h:
+            # 计算到下一个工作时段开始的秒数
+            if current_h >= end_h:
+                # 今天已过工作时段，等到明天
+                next_start = now.replace(hour=start_h, minute=0, second=0, microsecond=0)
+                next_start += datetime.timedelta(days=1)
+            else:
+                # 今天还没到工作时段
+                next_start = now.replace(hour=start_h, minute=0, second=0, microsecond=0)
+            wait_secs = (next_start - now).total_seconds()
+            log.info(f"当前不在工作时段 {start_h}:00-{end_h}:00，等待 {wait_secs:.0f}s")
+            time.sleep(wait_secs)
 
     # ─── 关键词任务 ──────────────────────────────────────────
 
@@ -90,10 +124,9 @@ class Orchestrator:
                 log.info(f"已切换排序: {self.sort_type}")
                 time.sleep(2)
 
-        # 滚动列表，mitmproxy 在后台自动拦截 API 响应并写入 DB
-        scroll_count = random.randint(*config.NOTES_PER_KEYWORD) // 4
-        self.actions.scroll_feed(count=scroll_count)
-        time.sleep(3)  # 给 mitmproxy 写入缓冲时间
+        # 快速上下翻飞加载列表，mitmproxy 拦截所有分页 API 响应写入 DB
+        self.actions.fling_load(rounds=3)
+        time.sleep(2)  # 给 mitmproxy 写入缓冲时间
 
         # 按屏幕位置依次点击可见卡片（不依赖 resourceId）
         # 每次滑动后重置 card_index，因为 tap_nth_card 基于当前可视区域
@@ -112,6 +145,12 @@ class Orchestrator:
                 self.daily_count += 1
                 log.debug(f"完成卡片 #{card_index} (关键词: {keyword}, 今日: {self.daily_count})")
 
+            # 走神：有小概率暂停一段时间，模拟用户分心
+            if random.random() < config.IDLE_PROBABILITY:
+                idle_secs = random.uniform(*config.IDLE_DURATION_RANGE)
+                log.info(f"走神中，暂停 {idle_secs:.0f}s...")
+                time.sleep(idle_secs)
+
             card_index += 1
             # 每处理完一行（2张卡片）后滚动并重置 index
             if card_index >= 2:
@@ -123,7 +162,11 @@ class Orchestrator:
         log.info(f"完成: {keyword}，采集 {crawled} 条")
 
     def _crawl_visible_card(self, card_index: int) -> bool:
-        """点击第 N 个可见卡片，采集评论后返回。成功返回 True"""
+        """点击第 N 个可见卡片，在详情页停留后返回。成功返回 True
+
+        简化逻辑：进入详情页后评论 API 已自动加载，无需显式打开评论区。
+        在详情页向下滚动 2-3 次触发更多评论分页加载，然后返回。
+        """
         from src.controller.state import detect_page, PageState
 
         if not self.actions.tap_nth_card(card_index):
@@ -136,21 +179,36 @@ class Orchestrator:
             log.debug(f"卡片 #{card_index} 未进入详情页 (当前: {page})")
             # 仍在搜索结果页则不 back，避免退出搜索
             if page not in (PageState.SEARCH_RESULT, PageState.SEARCH_INPUT):
-                self.actions.tap_back()
+                # 非标准页面（如问一问），循环 back 直到回到搜索结果
+                for _ in range(3):
+                    self.actions.tap_back()
+                    time.sleep(0.8)
+                    page = detect_page(self.device)
+                    if page in (PageState.SEARCH_RESULT, PageState.SEARCH_INPUT):
+                        break
+                if page not in (PageState.SEARCH_RESULT, PageState.SEARCH_INPUT):
+                    log.warning(f"卡片 #{card_index} 多次 back 仍未回到搜索页 (当前: {page})")
             return False
+
+        # 偶发非采集行为：有 15% 概率快速返回（模拟"看了一眼不感兴趣"）
+        if random.random() < 0.15:
+            log.debug(f"卡片 #{card_index} 快速略过（模拟不感兴趣）")
+            time.sleep(random.uniform(0.5, 1.5))
+            self.actions.tap_back()
+            time.sleep(random.uniform(0.5, 1.0))
+            return True
+
+        # 偶发非采集行为：有 10% 概率执行随机浏览（模拟"仔细阅读"）
+        if random.random() < 0.10:
+            log.debug(f"卡片 #{card_index} 触发随机浏览行为")
+            self.actions.random_browse()
 
         # 模拟阅读停留
         time.sleep(random.uniform(3.0, 8.0))
 
-        # 如果还没在评论状态，尝试打开评论
-        if page != PageState.COMMENT and self.actions.open_comments():
-            count = random.randint(*config.COMMENTS_SCROLL_RANGE)
-            self.actions.scroll_comments(count)
-            self.actions.tap_back()  # 关闭评论
-        elif page == PageState.COMMENT:
-            # 已经在评论状态，直接滚动采集
-            count = random.randint(*config.COMMENTS_SCROLL_RANGE)
-            self.actions.scroll_comments(count)
+        # 向下滑动触发更多评论加载（评论 API 在进入详情时已自动触发）
+        count = random.randint(*config.COMMENTS_SCROLL_RANGE)
+        self.actions.scroll_comments(count)
 
         self.actions.tap_back()  # 返回列表
         time.sleep(random.uniform(0.5, 1.0))

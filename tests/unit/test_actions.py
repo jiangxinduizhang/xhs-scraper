@@ -73,10 +73,11 @@ class TestSwipeDown:
 # ─── scroll_feed ─────────────────────────────────────────────
 
 class TestScrollFeed:
-    def test_calls_swipe_n_times(self, actions, device):
+    def test_calls_swipe_at_least_n_times(self, actions, device):
+        """scroll_feed(4) 至少滑动 4 次（可能含回滚等额外滑动）"""
         with patch("time.sleep"), patch("random.random", return_value=1.0):
             actions.scroll_feed(count=4)
-        assert device.swipe.call_count == 4
+        assert device.swipe.call_count >= 4
 
     def test_long_pause_triggered_by_probability(self, actions, device):
         sleep_calls = []
@@ -163,7 +164,8 @@ class TestOpenComments:
 
 class TestTapNthCard:
     def test_first_card_left_column(self, actions, device):
-        """index=0 → 左列"""
+        """index=0 → 左列（无相关搜索卡片时正常点击）"""
+        device.return_value.exists.return_value = False  # "相关搜索"不存在
         with patch("time.sleep"):
             result = actions.tap_nth_card(0)
         assert result is True
@@ -188,6 +190,7 @@ class TestTapNthCard:
 
     def test_row_increases_y(self, actions, device):
         """第二行 y 应大于第一行"""
+        device.return_value.exists.return_value = False  # "相关搜索"不存在
         ys = []
         for idx in [0, 2]:
             device.click.reset_mock()
