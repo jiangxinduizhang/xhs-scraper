@@ -71,6 +71,7 @@ class TestParseSearchNotes:
         assert note.author_name == "时尚小达人"
         assert note.liked_count == 23000
         assert note.note_type == "normal"
+        assert note.timestamp == 1765585947
 
     def test_wan_count_parsed(self, search_response):
         """第二条笔记 liked_count 是 '1.2万' 字符串"""
@@ -126,6 +127,7 @@ class TestParseHomefeed:
             {
                 "id": "hf_001", "title": "推荐内容", "desc": "desc",
                 "likes": 500, "type": "normal",
+                "timestamp": 1772289878,
                 "user": {"userid": "u1", "nickname": "用户1"},
                 "images_list": [{"url": "https://example.com/img.jpg"}],
                 "is_ads": False
@@ -137,6 +139,21 @@ class TestParseHomefeed:
         assert notes[0].liked_count == 500
         assert notes[0].cover_url == "https://example.com/img.jpg"
         assert notes[0].author_id == "u1"
+        assert notes[0].timestamp == 1772289878
+
+    def test_timestamp_defaults_to_zero(self):
+        """homefeed item 没有 timestamp 字段时，默认为 0"""
+        parser = XHSParser()
+        data = {"data": [
+            {
+                "id": "hf_no_ts", "title": "无时间戳", "desc": "",
+                "likes": 0, "type": "normal",
+                "user": {"userid": "u1", "nickname": "用户1"},
+                "images_list": []
+            }
+        ]}
+        notes = parser.parse("/api/sns/v6/homefeed", data)
+        assert notes[0].timestamp == 0
 
     def test_skips_ads(self):
         """is_ads=True 的条目应跳过"""
@@ -182,13 +199,15 @@ class TestParseNoteDetail:
                 "user": {"user_id": "u1", "nickname": "用户"},
                 "interact_info": {"liked_count": 500, "collected_count": 200, "comment_count": 30},
                 "cover": {"url": "https://example.com/img.jpg"},
-                "type": "normal", "tag_list": [{"name": "测试"}]
+                "type": "normal", "tag_list": [{"name": "测试"}],
+                "timestamp": 1770000000
             }
         }}}
         notes = parser.parse("/api/sns/v1/note/detailfeed", data)
         assert len(notes) == 1
         assert notes[0].note_id == "detail_note_001"
         assert notes[0].topics == ["测试"]
+        assert notes[0].timestamp == 1770000000
 
     def test_preload_path_ignored(self):
         """detailfeed/preload 不应解析"""

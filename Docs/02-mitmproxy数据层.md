@@ -2,41 +2,43 @@
 
 ## 代理配置方式
 
-### 方式 A：WiFi 代理（推荐，适合开发调试）
+### USB Tunnel 代理（实际使用方式）
+
+手机与 Mac 不在同一子网，必须走 `adb reverse` USB tunnel：
 
 ```bash
-# 1. 获取 Mac 的局域网 IP
-ifconfig en0 | grep "inet " | awk '{print $2}'
-# 假设为 192.168.1.100
+# ── 启动 ──
+# 1. 建立 USB 端口反向代理
+adb reverse tcp:8080 tcp:8080
 
-# 2. 启动 mitmproxy（监听 8080 端口）
-mitmproxy -p 8080 --set ssl_insecure=true
+# 2. 设置手机全局代理
+adb shell su -c "settings put global http_proxy 127.0.0.1:8080"
 
-# 或使用无 UI 模式（脚本模式）
-mitmdump -p 8080 -s src/proxy/addon.py
+# 3. 启动 mitmdump（addon 自动拦截并存入 DB）
+XHS_DB_PATH="data/xiaohongshu.db" mitmdump -p 8080 -s src/proxy/addon.py
 
-# 3. 手机端设置 WiFi 代理
-# 设置 → WLAN → 长按当前 WiFi → 修改网络 → 高级选项
-# 代理: 手动
-# 主机名: 192.168.1.100
-# 端口: 8080
+# ── 停止 ──
+# 必须全部执行，否则手机无法上网！
+# 1. 先写 :0 再删除（防止残留）
+adb shell su -c "settings put global http_proxy :0"
+# 2. 删除所有代理相关设置（4条全删）
+adb shell su -c "settings delete global http_proxy"
+adb shell su -c "settings delete global global_http_proxy_host"
+adb shell su -c "settings delete global global_http_proxy_port"
+adb shell su -c "settings delete global global_http_proxy_exclusion_list"
+# 3. 移除 adb 端口转发
+adb reverse --remove-all
+# 4. 如仍无法上网，开关飞行模式刷新网络栈
+adb shell su -c "settings put global airplane_mode_on 1"
+adb shell su -c "am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true"
+sleep 2
+adb shell su -c "settings put global airplane_mode_on 0"
+adb shell su -c "am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false"
 ```
 
-### 方式 B：透明代理（适合生产，无需手动设置 WiFi 代理）
-
-需要 root 权限，通过 iptables 强制所有流量经过代理：
-
-```bash
-# 手机端执行（需要 root）
-adb shell su -c "iptables -t nat -A OUTPUT -p tcp --dport 443 -j DNAT --to-destination 192.168.1.100:8080"
-adb shell su -c "iptables -t nat -A OUTPUT -p tcp --dport 80 -j DNAT --to-destination 192.168.1.100:8080"
-
-# mitmproxy 启动时加 --mode transparent
-mitmdump -p 8080 --mode transparent -s src/proxy/addon.py
-
-# 恢复（关闭透明代理）
-adb shell su -c "iptables -t nat -F OUTPUT"
-```
+> **踩坑记录**：仅执行 `settings delete global http_proxy` 不够，Android 会在
+> `global_http_proxy_host`、`global_http_proxy_port`、`global_http_proxy_exclusion_list`
+> 中残留值，导致代理停止后手机仍尝试连接已关闭的代理端口，表现为"无法上网"。
 
 ---
 
@@ -311,21 +313,31 @@ CREATE INDEX IF NOT EXISTS idx_comments_note ON comments(note_id);
 
 ```bash
 #!/bin/bash
-# 启动 mitmproxy 拦截小红书数据
+# 启动 mitmproxy（USB Tunnel 模式）
 
-PROXY_HOST=$(ifconfig en0 | grep "inet " | awk '{print $2}')
 PROXY_PORT=8080
 
-echo "代理地址: $PROXY_HOST:$PROXY_PORT"
-echo "请在手机 WiFi 设置中配置上述代理"
-echo ""
+cleanup() {
+    echo "正在清除代理设置..."
+    adb shell su -c "settings put global http_proxy :0"
+    adb shell su -c "settings delete global http_proxy"
+    adb shell su -c "settings delete global global_http_proxy_host"
+    adb shell su -c "settings delete global global_http_proxy_port"
+    adb shell su -c "settings delete global global_http_proxy_exclusion_list"
+    adb reverse --remove-all
+    echo "代理已清除"
+}
+trap cleanup EXIT
 
-# 设置手机 WiFi 代理（需要 ADB 权限）
-adb shell settings put global http_proxy "$PROXY_HOST:$PROXY_PORT"
+# 1. 建立 USB 端口转发
+adb reverse tcp:$PROXY_PORT tcp:$PROXY_PORT
 
-# 启动 mitmproxy
-mitmdump -p $PROXY_PORT -s src/proxy/addon.py --set ssl_insecure=true
+# 2. 设置手机代理
+adb shell su -c "settings put global http_proxy 127.0.0.1:$PROXY_PORT"
 
-# 退出时清除代理
-trap 'adb shell settings put global http_proxy :0' EXIT
+echo "代理已启动 (USB Tunnel → 127.0.0.1:$PROXY_PORT)"
+echo "Ctrl+C 退出时会自动清除代理"
+
+# 3. 启动 mitmdump
+XHS_DB_PATH="data/xiaohongshu.db" mitmdump -p $PROXY_PORT -s src/proxy/addon.py
 ```

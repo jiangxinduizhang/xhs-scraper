@@ -1,10 +1,12 @@
 """
 Database 单元测试 - 使用临时 SQLite 文件，无设备依赖
 """
+import csv
 import pytest
 import tempfile
 import os
 import json
+from pathlib import Path
 from src.storage.db import Database
 from src.proxy.parser import NoteItem, CommentItem
 
@@ -19,7 +21,7 @@ def db():
     os.unlink(path)
 
 
-def make_note(note_id="test_001", liked=100, note_type="normal", keyword="", source=""):
+def make_note(note_id="test_001", liked=100, note_type="normal", keyword="", source="", timestamp=0):
     return NoteItem(
         note_id=note_id,
         title=f"测试笔记 {note_id}",
@@ -31,6 +33,7 @@ def make_note(note_id="test_001", liked=100, note_type="normal", keyword="", sou
         comment_count=10,
         cover_url="https://example.com/cover.jpg",
         note_type=note_type,
+        timestamp=timestamp,
         topics=["测试", "单元测试"],
         keyword=keyword,
         source=source,
@@ -102,12 +105,22 @@ class TestSaveNotes:
         assert count == 1
 
     def test_note_fields_saved_correctly(self, db):
-        db.save([make_note("field_test", liked=999)])
+        db.save([make_note("field_test", liked=999, timestamp=1765585947)])
         row = db.conn.execute("SELECT * FROM notes WHERE note_id='field_test'").fetchone()
         assert row["title"] == "测试笔记 field_test"
         assert row["liked_count"] == 999
         assert row["author_name"] == "测试用户"
         assert row["note_type"] == "normal"
+        assert row["timestamp"] == 1765585947
+
+    def test_timestamp_saved(self, db):
+        db.save([make_note("ts_001", timestamp=1772289878)])
+        row = db.conn.execute("SELECT timestamp FROM notes WHERE note_id='ts_001'").fetchone()
+        assert row["timestamp"] == 1772289878
+        # 更新时 timestamp 也应该被覆盖
+        db.save([make_note("ts_001", timestamp=1780000000)])
+        row = db.conn.execute("SELECT timestamp FROM notes WHERE note_id='ts_001'").fetchone()
+        assert row["timestamp"] == 1780000000
 
     def test_topics_serialized_as_json(self, db):
         db.save([make_note()])
@@ -225,3 +238,193 @@ class TestGetUncrawledNotes:
         db.save([make_note("note_a", keyword="穿搭"), make_note("note_b", keyword="美食")])
         assert db.get_uncrawled_notes("穿搭", limit=10) == ["note_a"]
         assert db.get_uncrawled_notes("美食", limit=10) == ["note_b"]
+
+
+# ─── 数据导出 ─────────────────────────────────────────────────
+
+@pytest.fixture
+def tmp_dir():
+    """提供临时导出目录，测试结束后自动清理"""
+    with tempfile.TemporaryDirectory() as d:
+        yield d
+
+
+class TestExportNotesCsv:
+    def test_creates_file(self, db, tmp_dir):
+        db.save([make_note()])
+        path = os.path.join(tmp_dir, "notes.csv")
+        db.export_notes_csv(path)
+        assert os.path.exists(path)
+
+    def test_header_row_present(self, db, tmp_dir):
+        db.save([make_note()])
+        path = os.path.join(tmp_dir, "notes.csv")
+        db.export_notes_csv(path)
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            assert "note_id" in reader.fieldnames
+            assert "title" in reader.fieldnames
+            assert "topics" in reader.fieldnames
+
+    def test_row_count(self, db, tmp_dir):
+        db.save([make_note("n1"), make_note("n2"), make_note("n3")])
+        path = os.path.join(tmp_dir, "notes.csv")
+        db.export_notes_csv(path)
+        with open(path, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 3
+
+    def test_topics_as_comma_separated_string(self, db, tmp_dir):
+        """topics 在 CSV 中应为逗号分隔的字符串，而非 JSON"""
+        db.save([make_note()])
+        path = os.path.join(tmp_dir, "notes.csv")
+        db.export_notes_csv(path)
+        with open(path, encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert row["topics"] == "测试,单元测试"
+
+    def test_empty_table_writes_header_only(self, db, tmp_dir):
+        """空表导出只写表头，不报错"""
+        path = os.path.join(tmp_dir, "notes.csv")
+        db.export_notes_csv(path)
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+        assert "note_id" in content
+
+    def test_auto_creates_parent_dir(self, db, tmp_dir):
+        """自动创建不存在的父目录"""
+        path = os.path.join(tmp_dir, "sub", "deep", "notes.csv")
+        db.save([make_note()])
+        db.export_notes_csv(path)
+        assert os.path.exists(path)
+
+    def test_chinese_content_preserved(self, db, tmp_dir):
+        """中文字段正常写入和读取"""
+        db.save([make_note("cn_001")])
+        path = os.path.join(tmp_dir, "notes.csv")
+        db.export_notes_csv(path)
+        with open(path, encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert row["title"] == "测试笔记 cn_001"
+        assert row["author_name"] == "测试用户"
+
+
+class TestExportNotesJson:
+    def test_creates_file(self, db, tmp_dir):
+        db.save([make_note()])
+        path = os.path.join(tmp_dir, "notes.json")
+        db.export_notes_json(path)
+        assert os.path.exists(path)
+
+    def test_is_valid_json_array(self, db, tmp_dir):
+        db.save([make_note("j1"), make_note("j2")])
+        path = os.path.join(tmp_dir, "notes.json")
+        db.export_notes_json(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert isinstance(data, list)
+        assert len(data) == 2
+
+    def test_topics_is_list(self, db, tmp_dir):
+        """topics 在 JSON 中应为列表，而非字符串"""
+        db.save([make_note()])
+        path = os.path.join(tmp_dir, "notes.json")
+        db.export_notes_json(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert isinstance(data[0]["topics"], list)
+        assert data[0]["topics"] == ["测试", "单元测试"]
+
+    def test_empty_table_writes_empty_array(self, db, tmp_dir):
+        """空表导出为空 JSON 数组 []"""
+        path = os.path.join(tmp_dir, "notes.json")
+        db.export_notes_json(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert data == []
+
+    def test_chinese_not_escaped(self, db, tmp_dir):
+        """ensure_ascii=False：中文直接写入，不转义"""
+        db.save([make_note("cn_002")])
+        path = os.path.join(tmp_dir, "notes.json")
+        db.export_notes_json(path)
+        raw = Path(path).read_text(encoding="utf-8")
+        assert "测试笔记" in raw
+        assert "\\u" not in raw
+
+
+class TestExportCommentsCsv:
+    def test_creates_file(self, db, tmp_dir):
+        db.save([make_comment()])
+        path = os.path.join(tmp_dir, "comments.csv")
+        db.export_comments_csv(path)
+        assert os.path.exists(path)
+
+    def test_header_and_row_count(self, db, tmp_dir):
+        db.save([make_comment("c1"), make_comment("c2")])
+        path = os.path.join(tmp_dir, "comments.csv")
+        db.export_comments_csv(path)
+        with open(path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            assert "comment_id" in reader.fieldnames
+            rows = list(reader)
+        assert len(rows) == 2
+
+    def test_empty_table_writes_header_only(self, db, tmp_dir):
+        path = os.path.join(tmp_dir, "comments.csv")
+        db.export_comments_csv(path)
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+        assert "comment_id" in content
+
+    def test_content_field_preserved(self, db, tmp_dir):
+        db.save([make_comment("c_cn")])
+        path = os.path.join(tmp_dir, "comments.csv")
+        db.export_comments_csv(path)
+        with open(path, encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert row["content"] == "测试评论内容"
+
+
+class TestExportCommentsJson:
+    def test_creates_file(self, db, tmp_dir):
+        db.save([make_comment()])
+        path = os.path.join(tmp_dir, "comments.json")
+        db.export_comments_json(path)
+        assert os.path.exists(path)
+
+    def test_is_valid_json_array(self, db, tmp_dir):
+        db.save([make_comment("j1"), make_comment("j2")])
+        path = os.path.join(tmp_dir, "comments.json")
+        db.export_comments_json(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert isinstance(data, list)
+        assert len(data) == 2
+
+    def test_empty_table_writes_empty_array(self, db, tmp_dir):
+        path = os.path.join(tmp_dir, "comments.json")
+        db.export_comments_json(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert data == []
+
+    def test_chinese_not_escaped(self, db, tmp_dir):
+        db.save([make_comment("cn_cmt")])
+        path = os.path.join(tmp_dir, "comments.json")
+        db.export_comments_json(path)
+        raw = Path(path).read_text(encoding="utf-8")
+        assert "测试评论内容" in raw
+        assert "\\u" not in raw
+
+    def test_fields_complete(self, db, tmp_dir):
+        """JSON 对象包含所有 comments 表字段"""
+        db.save([make_comment("full_c", note_id="note_x", parent_id="parent_c")])
+        path = os.path.join(tmp_dir, "comments.json")
+        db.export_comments_json(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        obj = data[0]
+        assert obj["comment_id"] == "full_c"
+        assert obj["note_id"] == "note_x"
+        assert obj["parent_comment_id"] == "parent_c"

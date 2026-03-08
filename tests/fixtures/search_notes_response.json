@@ -13,6 +13,7 @@
           "collected_count": 11000,
           "comments_count": 234,
           "type": "normal",
+          "timestamp": 1765585947,
           "user": {
             "userid": "user_abc001",
             "nickname": "时尚小达人"
@@ -35,6 +36,7 @@
           "collected_count": 5600,
           "comments_count": 128,
           "type": "normal",
+          "timestamp": 1766000000,
           "user": {
             "userid": "user_abc002",
             "nickname": "穿搭控小美"
@@ -56,6 +58,7 @@
           "collected_count": 22000,
           "comments_count": 567,
           "type": "video",
+          "timestamp": 1767000000,
           "user": {
             "userid": "user_abc003",
             "nickname": "Vlog穿搭日记"
@@ -77,6 +80,7 @@
           "collected_count": 0,
           "comments_count": 0,
           "type": "normal",
+          "timestamp": 0,
           "user": {"userid": "", "nickname": ""},
           "images_list": [],
           "tag_list": []

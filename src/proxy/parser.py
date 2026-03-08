@@ -36,6 +36,7 @@ class NoteItem:
     comment_count: int
     cover_url: str
     note_type: str                          # normal / video
+    timestamp: int = 0
     topics: list = field(default_factory=list)
     keyword: str = ""
     source: str = ""                        # search / homefeed / detailfeed
@@ -102,6 +103,7 @@ class XHSParser:
                 comment_count=_parse_count(note.get("comments_count", 0)),
                 cover_url=cover,
                 note_type=note.get("type", "normal"),
+                timestamp=note.get("timestamp", 0),
                 topics=[t.get("name", "") for t in note.get("tag_list", []) if t.get("name")],
             ))
         return result
@@ -130,6 +132,7 @@ class XHSParser:
                 comment_count=0,     # homefeed 不提供
                 cover_url=cover,
                 note_type=item.get("type", "normal"),
+                timestamp=item.get("timestamp", 0),
             ))
         return result
 
@@ -159,6 +162,7 @@ class XHSParser:
                 comment_count=_parse_count(interact.get("comment_count", 0)),
                 cover_url=cover,
                 note_type=card.get("type", "normal"),
+                timestamp=card.get("timestamp", 0) or card.get("time", 0),
                 topics=[t.get("name", "") for t in card.get("tag_list", []) if t.get("name")],
             ))
         return result

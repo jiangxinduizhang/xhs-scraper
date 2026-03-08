@@ -186,7 +186,13 @@ XHS_DB_PATH="data/xiaohongshu.db" mitmdump -p 8080 -s src/proxy/addon.py
 
 ### 结束后清理
 ```bash
+# 必须全部执行，否则手机无法上网
+adb shell su -c "settings put global http_proxy :0"
 adb shell su -c "settings delete global http_proxy"
+adb shell su -c "settings delete global global_http_proxy_host"
+adb shell su -c "settings delete global global_http_proxy_port"
+adb shell su -c "settings delete global global_http_proxy_exclusion_list"
+adb reverse --remove-all
 ```
 
 ### 查询数据

@@ -38,16 +38,14 @@ def detect_page(d: u2.Device) -> PageState:
         return PageState.LOGIN
 
     if "NoteDetail" in activity or "notedetail" in activity.lower():
-        # 详情页内：判断评论面板是否展开
-        # 展开后会有可滚动的评论列表（NestedScrollView 或 RecyclerView 下有评论）
-        if (d(descriptionContains="发布评论").exists(timeout=0.5) or
-            d(description="评论框").exists(timeout=0.5)) and \
-           d(descriptionContains="评论 ").count > 0 and \
-           d(className="androidx.recyclerview.widget.RecyclerView").exists(timeout=0.5):
+        # 简化判断：在详情页内只要有评论输入框就视为可采集评论状态
+        # 进入详情页后评论 API 已自动触发，不需要区分"展开"状态
+        if (d(descriptionContains="说点什么").exists(timeout=0.5) or
+                d(text="说点什么").exists(timeout=0.5)):
             return PageState.COMMENT
         return PageState.NOTE_DETAIL
 
-    if any(s in activity for s in ("Search", "search")):
+    if any(s in activity for s in ("Search", "search")) and "ImageBrowser" not in activity:
         if d(className="android.widget.EditText", focused=True).exists(timeout=0.5):
             return PageState.SEARCH_INPUT
         return PageState.SEARCH_RESULT
@@ -89,10 +87,18 @@ def _has_dialog(d: u2.Device) -> bool:
 
 
 def navigate_to_home(d: u2.Device, max_back: int = 5) -> bool:
-    """多次返回直到首页"""
+    """多次返回直到首页，处理搜索页避免误退出 APP"""
     for _ in range(max_back):
-        if detect_page(d) == PageState.HOME:
+        page = detect_page(d)
+        if page == PageState.HOME:
             return True
+        # 在搜索结果或搜索输入页时先 back 退出搜索，再继续判断
+        if page in (PageState.SEARCH_RESULT, PageState.SEARCH_INPUT):
+            d.press("back")
+            time.sleep(0.8)
+            # 退出搜索后再检测，避免继续循环多次 back 导致退出 APP
+            if detect_page(d) == PageState.HOME:
+                return True
         d.press("back")
         time.sleep(0.8)
     return False

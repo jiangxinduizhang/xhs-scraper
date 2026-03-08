@@ -45,7 +45,14 @@ TYPING_DELAY_RANGE = (0.05, 0.15)     # 每字符输入延时（秒）
 SCROLL_DISTANCE_RANGE = (0.3, 0.6)    # 滑动幅度（屏幕高度比例）
 
 # ─── 抓取行为 ─────────────────────────────────────────────────
-NOTES_PER_KEYWORD = (15, 25)          # 每关键词目标笔记数
+NOTES_PER_KEYWORD = (15, 25)           # 每关键词采集笔记数
 COMMENTS_SCROLL_RANGE = (2, 5)        # 每笔记评论滚动次数
 INTER_KEYWORD_DELAY = (30, 90)        # 关键词间隔（秒）
 DAILY_NOTE_LIMIT = 500                 # 每日笔记上限
+
+# ─── 会话级反封号 ─────────────────────────────────────────
+WORK_HOURS = (8, 23)                   # 模拟人类活跃时段
+IDLE_PROBABILITY = 0.05                # 每次操作后"走神"概率
+IDLE_DURATION_RANGE = (30, 120)        # 走神时长（秒）
+SESSION_MAX_DURATION = 3600            # 单次会话最长时间（秒）
+COOLDOWN_AFTER_SESSION = (300, 600)    # 会话间冷却时间（秒）

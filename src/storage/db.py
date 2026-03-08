@@ -1,6 +1,7 @@
 """
 SQLite 数据存储层
 """
+import csv
 import sqlite3
 import json
 from datetime import datetime
@@ -27,6 +28,7 @@ class Database:
                 comment_count INTEGER DEFAULT 0,
                 cover_url TEXT,
                 note_type TEXT,
+                timestamp INTEGER DEFAULT 0,
                 topics TEXT,
                 crawled_at TEXT,
                 updated_at TEXT DEFAULT (datetime('now'))
@@ -66,7 +68,11 @@ class Database:
             row[1] for row in
             self.conn.execute("PRAGMA table_info(notes)").fetchall()
         }
-        for col, typedef in [("keyword", "TEXT DEFAULT ''"), ("source", "TEXT DEFAULT ''")]:
+        for col, typedef in [
+            ("keyword", "TEXT DEFAULT ''"),
+            ("source", "TEXT DEFAULT ''"),
+            ("timestamp", "INTEGER DEFAULT 0"),
+        ]:
             assert col.isidentifier(), f"非法列名: {col}"
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE notes ADD COLUMN {col} {typedef}")
@@ -128,14 +134,15 @@ class Database:
             INSERT INTO notes
                 (note_id, title, desc, author_id, author_name,
                  liked_count, collected_count, comment_count,
-                 cover_url, note_type, topics, keyword, source, crawled_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                 cover_url, note_type, timestamp, topics, keyword, source, crawled_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
             ON CONFLICT(note_id) DO UPDATE SET
                 title=excluded.title, desc=excluded.desc,
                 author_id=excluded.author_id, author_name=excluded.author_name,
                 liked_count=excluded.liked_count, collected_count=excluded.collected_count,
                 comment_count=excluded.comment_count, cover_url=excluded.cover_url,
-                note_type=excluded.note_type, topics=excluded.topics,
+                note_type=excluded.note_type, timestamp=excluded.timestamp,
+                topics=excluded.topics,
                 keyword=excluded.keyword, source=excluded.source,
                 updated_at=datetime('now')
         """, (
@@ -143,6 +150,7 @@ class Database:
             note.author_id, note.author_name,
             note.liked_count, note.collected_count, note.comment_count,
             note.cover_url, note.note_type,
+            getattr(note, 'timestamp', 0),
             json.dumps(note.topics, ensure_ascii=False),
             keyword, source,
             note.crawled_at,
@@ -169,3 +177,82 @@ class Database:
             comment.parent_comment_id,
             comment.crawled_at,
         ))
+
+    # ─── 数据导出 ────────────────────────────────────────
+
+    def _ensure_dir(self, path: str):
+        """自动创建目标文件的父目录"""
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _format_ts(ts) -> str:
+        """Unix 时间戳 → 可读时间字符串，0 或无效值返回空串"""
+        try:
+            ts = int(ts or 0)
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+        except (ValueError, OSError):
+            return ""
+
+    def export_notes_csv(self, path: str):
+        """导出 notes 表为 CSV，topics 字段展开为逗号分隔字符串"""
+        self._ensure_dir(path)
+        rows = self.conn.execute("SELECT * FROM notes").fetchall()
+        if not rows:
+            columns = [desc[1] for desc in self.conn.execute("PRAGMA table_info(notes)").fetchall()]
+            columns.append("publish_time")
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=columns)
+                writer.writeheader()
+            return
+        fieldnames = list(rows[0].keys()) + ["publish_time"]
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                d = dict(row)
+                try:
+                    d["topics"] = ",".join(json.loads(d["topics"] or "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    d["topics"] = d.get("topics") or ""
+                d["publish_time"] = self._format_ts(d.get("timestamp"))
+                writer.writerow(d)
+
+    def export_notes_json(self, path: str):
+        """导出 notes 表为 JSON 数组，topics 保留为数组"""
+        self._ensure_dir(path)
+        rows = self.conn.execute("SELECT * FROM notes").fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["topics"] = json.loads(d["topics"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                d["topics"] = []
+            d["publish_time"] = self._format_ts(d.get("timestamp"))
+            result.append(d)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+    def export_comments_csv(self, path: str):
+        """导出 comments 表为 CSV"""
+        self._ensure_dir(path)
+        rows = self.conn.execute("SELECT * FROM comments").fetchall()
+        if not rows:
+            columns = [desc[1] for desc in self.conn.execute("PRAGMA table_info(comments)").fetchall()]
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=columns)
+                writer.writeheader()
+            return
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(dict(row))
+
+    def export_comments_json(self, path: str):
+        """导出 comments 表为 JSON 数组"""
+        self._ensure_dir(path)
+        rows = self.conn.execute("SELECT * FROM comments").fetchall()
+        result = [dict(row) for row in rows]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
