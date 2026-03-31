@@ -28,6 +28,7 @@
 - [Docs/07-开盘啦迁移方案.md](Docs/07-%E5%BC%80%E7%9B%98%E5%95%A6%E8%BF%81%E7%A7%BB%E6%96%B9%E6%A1%88.md)
 - [Docs/08-Mac-mini物料与验证清单.md](Docs/08-Mac-mini%E7%89%A9%E6%96%99%E4%B8%8E%E9%AA%8C%E8%AF%81%E6%B8%85%E5%8D%95.md)
 - [KPL_HANDOFF.md](KPL_HANDOFF.md)
+- 开盘啦正式适配包在 `src/apps/kaipanla/`
 
 可复用的通用层：
 
@@ -44,6 +45,10 @@
 - `state`
 - `actions`
 - Midscene 提示词
+
+新 App 的正式落点：
+
+- `src/apps/kaipanla/`
 
 快速恢复上下文规则：
 

@@ -6,6 +6,7 @@
 - 当前分支：`dev-kpl`
 - 开发方式：Windows 写代码，Mac mini 实机验证
 - 当前目标：验证 `xhs-scraper` 的框架能否迁移到 `开盘啦`，先做最小闭环，不做全量重构
+- 开盘啦正式适配包：`src/apps/kaipanla/`
 
 ## 一句话结论
 
@@ -69,10 +70,10 @@
 
 - [迁移方案](Docs/07-开盘啦迁移方案.md)
 - [Mac mini 物料与验证清单](Docs/08-Mac-mini物料与验证清单.md)
+- [开盘啦适配说明](Docs/kaipanla/README.md)
 
 ## 下次接续时直接看这几个文件
 
 - [KPL_HANDOFF.md](KPL_HANDOFF.md)
 - [Docs/07-开盘啦迁移方案.md](Docs/07-%E5%BC%80%E7%9B%98%E5%95%A6%E8%BF%81%E7%A7%BB%E6%96%B9%E6%A1%88.md)
 - [Docs/08-Mac-mini物料与验证清单.md](Docs/08-Mac-mini%E7%89%A9%E6%96%99%E4%B8%8E%E9%AA%8C%E8%AF%81%E6%B8%85%E5%8D%95.md)
-

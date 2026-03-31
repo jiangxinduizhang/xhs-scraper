@@ -1,8 +1,8 @@
 """
-兼容层。
+开盘啦适配包。
 
-正式实现已迁移到 `src.apps.kaipanla`。
-这里保留旧导入路径，避免已有引用失效。
+这是 `开盘啦` 的正式适配落点。
+旧的 `src.kaipanla` 仅作为兼容层保留。
 """
 
 from src.apps.kaipanla.manifest import AppManifest, build_stub_manifest
@@ -14,3 +14,4 @@ __all__ = [
     "build_first_round_checklist",
     "build_stub_manifest",
 ]
+
