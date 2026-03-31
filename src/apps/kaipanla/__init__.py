@@ -7,11 +7,12 @@
 
 from src.apps.kaipanla.manifest import AppManifest, build_stub_manifest
 from src.apps.kaipanla.checklist import ValidationChecklist, build_first_round_checklist
+from src.apps.kaipanla.entry import build_report
 
 __all__ = [
     "AppManifest",
     "ValidationChecklist",
     "build_first_round_checklist",
+    "build_report",
     "build_stub_manifest",
 ]
-
