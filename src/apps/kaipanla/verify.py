@@ -107,9 +107,19 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         checks.append("数据库文件不存在")
         ok = False
 
+    error_code = None
+    error_stage = None
+    if isinstance(result.source_counts, dict):
+        error_code = result.source_counts.get("error_code")
+        error_stage = result.source_counts.get("error_stage")
+
     if result.status not in ("success", "partial"):
         ok = False
         details.append(f"run.status={result.status}")
+        if error_code:
+            details.append(f"error_code={error_code}")
+        if error_stage:
+            details.append(f"error_stage={error_stage}")
 
     latest_snapshot = _find_latest_daban_snapshot(result.raw_paths)
     latest_daban = latest_snapshot.get("DaBanList") if isinstance(latest_snapshot, dict) else {}

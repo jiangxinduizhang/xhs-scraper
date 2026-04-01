@@ -19,7 +19,7 @@ from src import config
 from src.apps.kaipanla.manifest import build_stub_manifest
 from src.apps.kaipanla.report import write_run_report
 from src.apps.kaipanla.task import RunResult, TaskSpec
-from src.controller.device import clear_proxy, configure_proxy, connect_device, launch_app, preflight_check
+from src.controller.device import PreflightError, clear_proxy, configure_proxy, connect_device, launch_app, preflight_check
 from src.proxy.parser import XHSParser
 
 
@@ -71,6 +71,15 @@ class KaipanlaRunner:
             if result.parsed_count > 0:
                 self._record_step(result, "parsed_complete", str(result.parsed_count))
             result.status = "success" if result.captured_count > 0 else "partial"
+        except PreflightError as exc:
+            result.status = "failed"
+            result.error = f"{type(exc).__name__}: {exc}"
+            result.next_action = exc.recover_hint or self.task.next_action_hint or "检查环境和页面路径"
+            result.source_counts = {
+                "error_code": exc.code,
+                "error_stage": "preflight",
+            }
+            self._record_step(result, "preflight_failed", exc.code)
         except Exception as exc:
             result.status = "failed"
             result.error = f"{type(exc).__name__}: {exc}"
@@ -93,8 +102,8 @@ class KaipanlaRunner:
         self._record_step(result, "proxy_started", f"port={config.PROXY_PORT}")
         configure_proxy(config.PROXY_PORT)
         self._record_step(result, "proxy_configured", f"port={config.PROXY_PORT}")
-        preflight_check()
-        self._record_step(result, "preflight_ok", "adb reverse + proxy")
+        preflight = preflight_check()
+        self._record_step(result, "preflight_ok", json.dumps(preflight, ensure_ascii=False, sort_keys=True))
         launch_app(self.device, fresh_start=True, package=self.task.package_name, activity=self.task.launch_activity)
         self._record_step(result, "launch_app", f"{self.task.package_name} {self.task.launch_activity}")
 

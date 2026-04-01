@@ -173,6 +173,20 @@ def _emit(payload: dict, pretty: bool = False) -> int:
     return 0
 
 
+def _structured_failure(run: RunResult) -> dict | None:
+    source_counts = run.source_counts if isinstance(run.source_counts, dict) else {}
+    error_code = source_counts.get("error_code")
+    error_stage = source_counts.get("error_stage")
+    if not error_code and run.status in ("success", "partial"):
+        return None
+    return {
+        "code": error_code or "runtime_failed",
+        "stage": error_stage or "runtime",
+        "message": run.error,
+        "recover_hint": run.next_action,
+    }
+
+
 def cmd_capture(args) -> dict:
     used_default_preset = not args.task and not args.preset
     task = _load_task(args.task, args.preset)
@@ -186,6 +200,9 @@ def cmd_capture(args) -> dict:
         "run": run.to_dict(),
         "market_summary": build_market_summary(task, run),
     }
+    failure = _structured_failure(run)
+    if failure:
+        payload["failure"] = failure
     return payload
 
 
