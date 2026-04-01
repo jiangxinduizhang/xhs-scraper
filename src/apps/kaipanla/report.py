@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 from src.apps.kaipanla.task import RunResult, TaskSpec
@@ -66,6 +67,89 @@ def _safe_num(value, default=0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+def _extract_hot_themes(baceface_list, zqfk_list, jjxt_list, limit: int = 6) -> list[str]:
+    themes: list[str] = []
+    for item in baceface_list or []:
+        if isinstance(item, list) and len(item) >= 2:
+            themes.append(f"{item[0]}({item[1]})")
+
+    counter: Counter[str] = Counter()
+    for rows in (zqfk_list or []), (jjxt_list or []):
+        for item in rows:
+            if not isinstance(item, list) or len(item) < 5:
+                continue
+            topic_field = str(item[4] or "")
+            for part in topic_field.replace(";", "、").split("、"):
+                part = part.strip()
+                if part:
+                    counter[part] += 1
+
+    for theme, count in counter.most_common(limit):
+        if not any(theme in existing for existing in themes):
+            themes.append(f"{theme}(关联{count})")
+
+    return themes[:limit]
+
+
+def _extract_ranking_focus(phb_list, limit: int = 3) -> list[str]:
+    rows: list[str] = []
+    for item in (phb_list or [])[:limit]:
+        if not isinstance(item, list) or len(item) < 7:
+            continue
+        stock_name = item[1]
+        increase = item[2]
+        board_count = item[3]
+        reason = item[4]
+        topic = item[5] or item[6]
+        rows.append(f"{stock_name} 涨{increase}% 板数{board_count}，标签:{reason} / {topic}")
+    return rows
+
+
+def _extract_money_flow(jjxt_list, zqfk_list, zlsc_list, limit: int = 3) -> list[str]:
+    rows: list[str] = []
+    rows.extend(_money_rows(jjxt_list, 1, 2, 3, 4, limit=limit))
+    if len(rows) < limit:
+        for item in (zqfk_list or [])[:limit]:
+            if not isinstance(item, list) or len(item) < 5:
+                continue
+            rows.append(f"{item[1]} 涨{item[3]}% 反馈资金{item[2]} 题材:{item[4]}")
+            if len(rows) >= limit:
+                break
+    if len(rows) < limit:
+        for item in (zlsc_list or [])[:limit]:
+            if not isinstance(item, list) or len(item) < 8:
+                continue
+            rows.append(f"{item[1]} {item[7]}，题材:{item[3]}，当日涨跌:{item[5]}%")
+            if len(rows) >= limit:
+                break
+    return rows[:limit]
+
+
+def _extract_review_tone(mood: str, blowup_rate: float, hot_themes: list[str], strong_watchlist: list[str], risk_flags: list[str]) -> list[str]:
+    lines: list[str] = []
+    if mood == "强势":
+        lines.append("指数外的情绪面偏强，短线资金愿意做多，强势股和题材股都有表现。")
+    elif mood == "偏强":
+        lines.append("盘面偏暖，但更像有主攻方向的结构性活跃，不算无差别普涨。")
+    elif mood == "震荡分化":
+        lines.append("市场更像分化轮动，适合盯主线，不适合把所有方向都当机会。")
+    else:
+        lines.append("盘面承接偏弱，做多信号不够一致，应该先收缩风险暴露。")
+
+    if blowup_rate >= 50:
+        lines.append("不过炸板率明显偏高，说明强势里带着不小分歧，追高容错率一般。")
+    elif blowup_rate >= 30:
+        lines.append("炸板率不低，说明盘中博弈强，后排跟风需要更谨慎。")
+
+    if hot_themes:
+        lines.append(f"主线观察上，先看 {'、'.join(hot_themes[:4])} 是否继续扩散，而不是只看孤立个股冲高。")
+    if strong_watchlist:
+        lines.append(f"强势锚点可以盯 {'；'.join(strong_watchlist[:2])}。")
+    if risk_flags:
+        lines.append(f"风险侧先避开 {'；'.join(risk_flags[:2])} 这类明显弱势反馈。")
+    return lines
 
 
 def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
@@ -162,13 +246,12 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
         mood = "震荡分化"
         mood_reason = "涨跌分布并非单边，更多像结构性分化行情。"
 
-    hot_topics = _topic_list(baceface_list, topic_index=0, value_index=1, limit=4)
+    hot_themes = _extract_hot_themes(baceface_list, zqfk_list, jjxt_list, limit=6)
     strong_weather = _stock_triplets((weather.get("SZ") or []) if isinstance(weather, dict) else [], 1, 2, 3, limit=3)
     weak_weather = _stock_triplets((weather.get("XD") or []) if isinstance(weather, dict) else [], 1, 2, 3, limit=3)
-    ranking_focus = _stock_triplets(phb_list, 1, 2, 6, limit=3)
-    money_focus = _money_rows(jjxt_list, 1, 2, 3, 4, limit=3)
-    profit_focus = _money_rows(zqfk_list, 1, 3, 2, 4, limit=3)
-    lock_positions = [f"{item[1]} {item[5]}% 题材:{item[3]} 模式:{item[7]}" for item in (zlsclist or [])[:3] if isinstance(item, list) and len(item) > 7]
+    ranking_focus = _extract_ranking_focus(phb_list, limit=3)
+    money_focus = _extract_money_flow(jjxt_list, zqfk_list, zlsclist, limit=3)
+    lock_positions = [f"{item[1]} {item[7]} 题材:{item[3]} 当日涨跌:{item[5]}%" for item in (zlsclist or [])[:3] if isinstance(item, list) and len(item) > 7]
     fkyd_focus = [f"{item.get('StockName','')} {item.get('zhangfu','')}" for item in (fkyd_list or [])[:3] if isinstance(item, dict)]
 
     market_overview = [
@@ -178,6 +261,9 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
         f"炸板率 {blowup_rate:.2f}%",
     ]
 
+    risk_flags = weak_weather + ([f"炸板率偏高: {blowup_rate:.2f}%"] if blowup_rate >= 35 else [])
+    review_tone = _extract_review_tone(mood, blowup_rate, hot_themes, strong_weather or fkyd_focus, risk_flags)
+
     bullets: list[str] = []
     if result.status not in {"success", "partial"}:
         bullets.append("本次抓取未形成可稳定解读的市场摘要，请先检查抓取状态和错误信息。")
@@ -185,25 +271,26 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
         bullets.append(completeness_text)
         bullets.append(signal_focus_text)
         bullets.append(f"盘面整体判断偏{mood}：{mood_reason}")
-        if hot_topics:
-            bullets.append(f"热点题材靠前的是：{'、'.join(hot_topics)}。")
-        if strong_weather:
-            bullets.append(f"强势风向标里更活跃的有：{'；'.join(strong_weather)}。")
+        if hot_themes:
+            bullets.append(f"热点主线先看：{'、'.join(hot_themes[:4])}。")
         if ranking_focus:
-            bullets.append(f"连板/排行观察可先看：{'；'.join(ranking_focus)}。")
+            bullets.append(f"连板/辨识度个股可先盯：{'；'.join(ranking_focus[:2])}。")
         if money_focus:
-            bullets.append(f"资金节奏上有代表性的票：{'；'.join(money_focus)}。")
+            bullets.append(f"资金与强势股反馈集中在：{'；'.join(money_focus[:2])}。")
         if weak_weather:
             bullets.append(f"弱势/风险方向主要在：{'；'.join(weak_weather)}。")
+        bullets.extend(review_tone)
         bullets.append(parser_confidence_text)
 
     sections = {
         "market_overview": market_overview,
         "emotion_judgement": [f"情绪判断: {mood}", mood_reason, f"上涨/下跌比约 {breadth_ratio:.2f}"],
-        "hot_themes": hot_topics,
+        "hot_themes": hot_themes,
         "strong_watchlist": strong_weather or fkyd_focus,
-        "money_flow": money_focus or profit_focus,
-        "risk_flags": weak_weather + ([f"炸板率偏高: {blowup_rate:.2f}%" ] if blowup_rate >= 35 else []),
+        "ranking_focus": ranking_focus,
+        "money_flow": money_focus,
+        "review_tone": review_tone,
+        "risk_flags": risk_flags,
         "observation_points": [
             "优先观察热点题材能否从点状走向扩散。",
             "观察强势风向标个股是否继续封板/加强。",
@@ -234,8 +321,6 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
             "market_zlsc": zlsc,
             "market_emotion_summary": summary,
             "market_plz": plz,
-            "market_weather_sz": weather_sz,
-            "market_weather_xd": weather_xd,
             "unknown": unknown,
             "up_count": up_count,
             "down_count": down_count,
@@ -247,12 +332,11 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
         },
         "bullets": bullets,
         "raw_snapshot": {
-            "hot_topics": hot_topics,
+            "hot_themes": hot_themes,
             "strong_weather": strong_weather,
             "weak_weather": weak_weather,
             "ranking_focus": ranking_focus,
             "money_focus": money_focus,
-            "profit_focus": profit_focus,
             "lock_positions": lock_positions,
             "fkyd_focus": fkyd_focus,
         },
@@ -266,9 +350,13 @@ def _render_human_summary(task: TaskSpec, result: RunResult) -> list[str]:
     if sections.get("market_overview"):
         lines.append("- 市场总览：" + "；".join(sections["market_overview"]))
     if sections.get("hot_themes"):
-        lines.append("- 热点方向：" + "、".join(sections["hot_themes"]))
+        lines.append("- 热点方向：" + "、".join(sections["hot_themes"][:5]))
+    if sections.get("ranking_focus"):
+        lines.append("- 连板/辨识度：" + "；".join(sections["ranking_focus"][:3]))
     if sections.get("money_flow"):
         lines.append("- 资金/强势股：" + "；".join(sections["money_flow"][:3]))
+    if sections.get("review_tone"):
+        lines.append("- 复盘口吻：" + "；".join(sections["review_tone"][:3]))
     if sections.get("risk_flags"):
         lines.append("- 风险提示：" + "；".join(sections["risk_flags"][:3]))
     if sections.get("observation_points"):
