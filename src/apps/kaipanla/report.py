@@ -66,6 +66,43 @@ def _find_latest_raw_record(result: RunResult) -> dict:
     return best_data
 
 
+def _find_previous_market_record(result: RunResult, current_day: str | None) -> dict:
+    candidate_paths: list[Path] = []
+    for raw_path in result.raw_paths or []:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if path.exists():
+            candidate_paths.append(path)
+            parent = path.parent
+            for other in sorted(parent.glob("*.jsonl"), reverse=True):
+                if other not in candidate_paths:
+                    candidate_paths.append(other)
+
+    best_data: dict = {}
+    best_score = -1
+    best_day = ""
+    for path in candidate_paths:
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            data = rec.get("data")
+            if not isinstance(data, dict):
+                continue
+            day = str(data.get("Day") or "")
+            if not day or (current_day and day >= current_day):
+                continue
+            score = _score_market_record(data)
+            if day > best_day or (day == best_day and score > best_score):
+                best_day = day
+                best_score = score
+                best_data = data
+    return best_data
+
+
 def _topic_list(items, topic_index: int = 0, value_index: int = 1, limit: int = 3) -> list[str]:
     result: list[str] = []
     for item in (items or [])[:limit]:
@@ -184,6 +221,73 @@ def _extract_review_tone(mood: str, blowup_rate: float, hot_themes: list[str], s
     return lines
 
 
+def _build_day_compare(current_data: dict, previous_data: dict) -> dict | None:
+    if not current_data or not previous_data:
+        return None
+
+    c_db = current_data.get("DaBanList") or {}
+    p_db = previous_data.get("DaBanList") or {}
+    c_day = str(current_data.get("Day") or "")
+    p_day = str(previous_data.get("Day") or "")
+    if not c_day or not p_day:
+        return None
+
+    c_up = int(_safe_num(c_db.get("SZJS", 0), 0))
+    c_down = int(_safe_num(c_db.get("XDJS", 0), 0))
+    p_up = int(_safe_num(p_db.get("SZJS", 0), 0))
+    p_down = int(_safe_num(p_db.get("XDJS", 0), 0))
+    c_zt = int(_safe_num(c_db.get("tZhangTing", 0), 0))
+    p_zt = int(_safe_num(p_db.get("tZhangTing", 0), 0))
+    c_dt = int(_safe_num(c_db.get("tDieTing", 0), 0))
+    p_dt = int(_safe_num(p_db.get("tDieTing", 0), 0))
+    c_strength = _safe_num(c_db.get("ZHQD", 0), 0)
+    p_strength = _safe_num(p_db.get("ZHQD", 0), 0)
+    c_blow = _safe_num(c_db.get("tFengBan", 0), 0)
+    p_blow = _safe_num(p_db.get("tFengBan", 0), 0)
+
+    hot_now = [str(x[0]) for x in (current_data.get("BaceFaceList") or []) if isinstance(x, list) and len(x) >= 1]
+    hot_prev = [str(x[0]) for x in (previous_data.get("BaceFaceList") or []) if isinstance(x, list) and len(x) >= 1]
+    new_hot = [x for x in hot_now if x not in hot_prev][:4]
+    faded_hot = [x for x in hot_prev if x not in hot_now][:4]
+
+    summary: list[str] = []
+    if c_up > p_up and c_down < p_down:
+        summary.append(f"较 {p_day} 明显回暖：上涨家数从 {p_up} 提升到 {c_up}，下跌家数从 {p_down} 收敛到 {c_down}。")
+    elif c_up < p_up and c_down > p_down:
+        summary.append(f"较 {p_day} 明显转弱：上涨家数从 {p_up} 降到 {c_up}，下跌家数从 {p_down} 扩大到 {c_down}。")
+    else:
+        summary.append(f"较 {p_day} 结构有所变化，但不是单边切换。")
+
+    if c_strength > p_strength:
+        summary.append(f"综合强度从 {p_strength:.0f} 升到 {c_strength:.0f}。")
+    elif c_strength < p_strength:
+        summary.append(f"综合强度从 {p_strength:.0f} 降到 {c_strength:.0f}。")
+
+    if c_blow < p_blow:
+        summary.append(f"炸板率从 {p_blow:.2f}% 回落到 {c_blow:.2f}%，分歧仍在，但比前一日缓和。")
+    elif c_blow > p_blow:
+        summary.append(f"炸板率从 {p_blow:.2f}% 升到 {c_blow:.2f}%，追高环境变差。")
+
+    if new_hot:
+        summary.append(f"新增/强化题材：{'、'.join(new_hot)}。")
+    if faded_hot:
+        summary.append(f"相对退潮题材：{'、'.join(faded_hot)}。")
+
+    return {
+        "current_day": c_day,
+        "previous_day": p_day,
+        "up_count_delta": c_up - p_up,
+        "down_count_delta": c_down - p_down,
+        "up_limit_delta": c_zt - p_zt,
+        "down_limit_delta": c_dt - p_dt,
+        "strength_delta": c_strength - p_strength,
+        "blowup_rate_delta": c_blow - p_blow,
+        "new_hot_themes": new_hot,
+        "faded_hot_themes": faded_hot,
+        "summary": summary,
+    }
+
+
 def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     msg_top = _count(result, "msg_top")
     fkyd = _count(result, "market_fkyd")
@@ -247,6 +351,7 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     comment_present = plz > 0
 
     raw = _find_latest_raw_record(result)
+    previous_raw = _find_previous_market_record(result, str(raw.get("Day") or ""))
     da_ban = raw.get("DaBanList") if isinstance(raw, dict) else {}
     baceface_list = raw.get("BaceFaceList") if isinstance(raw, dict) else []
     weather = raw.get("CWeatherVaneList") if isinstance(raw, dict) else {}
@@ -295,6 +400,7 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
 
     risk_flags = weak_weather + ([f"炸板率偏高: {blowup_rate:.2f}%"] if blowup_rate >= 35 else [])
     review_tone = _extract_review_tone(mood, blowup_rate, hot_themes, strong_weather or fkyd_focus, risk_flags)
+    day_compare = _build_day_compare(raw, previous_raw)
 
     bullets: list[str] = []
     if result.status not in {"success", "partial"}:
@@ -311,12 +417,15 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
             bullets.append(f"资金与强势股反馈集中在：{'；'.join(money_focus[:2])}。")
         if weak_weather:
             bullets.append(f"弱势/风险方向主要在：{'；'.join(weak_weather)}。")
+        if day_compare:
+            bullets.extend(day_compare["summary"][:2])
         bullets.extend(review_tone)
         bullets.append(parser_confidence_text)
 
     sections = {
         "market_overview": market_overview,
         "emotion_judgement": [f"情绪判断: {mood}", mood_reason, f"上涨/下跌比约 {breadth_ratio:.2f}"],
+        "day_compare": day_compare,
         "hot_themes": hot_themes,
         "strong_watchlist": strong_weather or fkyd_focus,
         "ranking_focus": ranking_focus,
@@ -371,6 +480,7 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
             "money_focus": money_focus,
             "lock_positions": lock_positions,
             "fkyd_focus": fkyd_focus,
+            "previous_day": previous_raw.get("Day") if isinstance(previous_raw, dict) else None,
         },
     }
 
@@ -379,6 +489,9 @@ def _render_human_summary(task: TaskSpec, result: RunResult) -> list[str]:
     summary = build_market_summary(task, result)
     lines = [f"- {line}" for line in summary["bullets"]]
     sections = summary.get("sections", {})
+    day_compare = sections.get("day_compare")
+    if day_compare and day_compare.get("summary"):
+        lines.append("- 跨日对比：" + "；".join(day_compare["summary"][:3]))
     if sections.get("market_overview"):
         lines.append("- 市场总览：" + "；".join(sections["market_overview"]))
     if sections.get("hot_themes"):
