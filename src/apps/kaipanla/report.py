@@ -13,10 +13,7 @@ def _count(result: RunResult, key: str) -> int:
     return int((result.note_type_counts or {}).get(key, 0) or 0)
 
 
-def _render_human_summary(task: TaskSpec, result: RunResult) -> list[str]:
-    if result.status not in {"success", "partial"}:
-        return ["- 本次抓取未形成可稳定解读的市场摘要，请先检查抓取状态和错误信息。"]
-
+def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     msg_top = _count(result, "msg_top")
     fkyd = _count(result, "market_fkyd")
     baceface = _count(result, "market_baceface")
@@ -30,52 +27,100 @@ def _render_human_summary(task: TaskSpec, result: RunResult) -> list[str]:
     plz = _count(result, "market_plz")
     unknown = int((result.source_counts or {}).get("unknown", 0) or 0)
 
-    lines: list[str] = []
-
     active_modules = sum(1 for value in [msg_top, fkyd, baceface, jjxt, phb, zqfk, zlsc] if value > 0)
     if active_modules >= 5:
-        lines.append("- 市场情绪页主要模块都有数据，页面信息完整度较高，不像是空页或半残抓取。")
+        completeness = "high"
+        completeness_text = "市场情绪页主要模块都有数据，页面信息完整度较高，不像是空页或半残抓取。"
     elif active_modules >= 3:
-        lines.append("- 市场情绪页拿到了多类模块数据，能做基础观察，但完整度还不是最强。")
+        completeness = "medium"
+        completeness_text = "市场情绪页拿到了多类模块数据，能做基础观察，但完整度还不是最强。"
     else:
-        lines.append("- 当前抓到的模块较少，更适合当作抓取校验，不适合下重结论。")
+        completeness = "low"
+        completeness_text = "当前抓到的模块较少，更适合当作抓取校验，不适合下重结论。"
 
     if msg_top >= 8:
-        lines.append("- 顶部/主展示类信息较活跃，说明页面重点信号输出比较集中，适合先看主叙事和强势方向。")
+        signal_focus = "concentrated"
+        signal_focus_text = "顶部/主展示类信息较活跃，说明页面重点信号输出比较集中，适合先看主叙事和强势方向。"
     elif msg_top >= 4:
-        lines.append("- 顶部主信息有一定活跃度，但还看不出特别极端的一致性。")
+        signal_focus = "balanced"
+        signal_focus_text = "顶部主信息有一定活跃度，但还看不出特别极端的一致性。"
     else:
-        lines.append("- 顶部强提示信息不多，情绪信号可能偏分散。")
+        signal_focus = "scattered"
+        signal_focus_text = "顶部强提示信息不多，情绪信号可能偏分散。"
 
-    style_modules = []
+    modules: list[str] = []
     if fkyd > 0:
-        style_modules.append("风口异动")
+        modules.append("风口异动")
     if jjxt > 0:
-        style_modules.append("资金/节奏类信号")
+        modules.append("资金/节奏类信号")
     if phb > 0:
-        style_modules.append("排行类信号")
+        modules.append("排行类信号")
     if zqfk > 0:
-        style_modules.append("赚钱效应反馈")
+        modules.append("赚钱效应反馈")
     if zlsc > 0:
-        style_modules.append("主力市场/资金观察")
+        modules.append("主力市场/资金观察")
     if baceface > 0:
-        style_modules.append("情绪面板")
-    if style_modules:
-        lines.append(f"- 这次可回读的重点模块包括：{'、'.join(style_modules)}。说明今天不只是单点行情，而是有横向观察维度。")
-
-    if weather_sz > 0 or weather_xd > 0 or summary > 0:
-        lines.append("- 页面里带有情绪总览/市场天气类信息，适合进一步升级成可直接阅读的人话日报。")
-
-    if plz > 0:
-        lines.append("- 还有舆情/评论区类补充信号，但目前占比不高，更适合作为辅助观察。")
+        modules.append("情绪面板")
 
     if unknown >= 10:
-        lines.append("- 仍有一部分数据暂时落在 unknown，说明 parser 还有继续细分的空间；当前摘要可用，但不是最终形态。")
+        parser_confidence = "medium"
+        parser_confidence_text = "仍有一部分数据暂时落在 unknown，说明 parser 还有继续细分的空间；当前摘要可用，但不是最终形态。"
     elif unknown > 0:
-        lines.append("- 有少量未归类数据，不影响总体回读，但后续还可以继续细化解析规则。")
+        parser_confidence = "medium_high"
+        parser_confidence_text = "有少量未归类数据，不影响总体回读，但后续还可以继续细化解析规则。"
+    else:
+        parser_confidence = "high"
+        parser_confidence_text = "当前抓取结果已基本完成归类，适合进一步做更稳定的自动摘要。"
 
-    lines.append("- 就这次结果看，更适合下的结论是：页面抓取稳定、模块覆盖正常、具备继续做盘面摘要的基础；但要判断‘主线/分歧/修复强弱’，还需要把字段内容进一步翻译成人话。")
-    return lines
+    weather_present = any(x > 0 for x in [weather_sz, weather_xd, summary])
+    comment_present = plz > 0
+
+    bullets: list[str] = []
+    if result.status not in {"success", "partial"}:
+        bullets.append("本次抓取未形成可稳定解读的市场摘要，请先检查抓取状态和错误信息。")
+    else:
+        bullets.append(completeness_text)
+        bullets.append(signal_focus_text)
+        if modules:
+            bullets.append(f"这次可回读的重点模块包括：{'、'.join(modules)}。说明今天不只是单点行情，而是有横向观察维度。")
+        if weather_present:
+            bullets.append("页面里带有情绪总览/市场天气类信息，适合进一步升级成可直接阅读的人话日报。")
+        if comment_present:
+            bullets.append("还有舆情/评论区类补充信号，但目前占比不高，更适合作为辅助观察。")
+        bullets.append(parser_confidence_text)
+        bullets.append("就这次结果看，更适合下的结论是：页面抓取稳定、模块覆盖正常、具备继续做盘面摘要的基础；但要判断‘主线/分歧/修复强弱’，还需要把字段内容进一步翻译成人话。")
+
+    return {
+        "page": task.page,
+        "status": result.status,
+        "completeness": completeness,
+        "signal_focus": signal_focus,
+        "parser_confidence": parser_confidence,
+        "weather_present": weather_present,
+        "comment_present": comment_present,
+        "active_modules": modules,
+        "counts": {
+            "captured_count": result.captured_count,
+            "parsed_count": result.parsed_count,
+            "msg_top": msg_top,
+            "market_fkyd": fkyd,
+            "market_baceface": baceface,
+            "market_jjxt": jjxt,
+            "market_phb": phb,
+            "market_zqfk": zqfk,
+            "market_zlsc": zlsc,
+            "market_emotion_summary": summary,
+            "market_plz": plz,
+            "market_weather_sz": weather_sz,
+            "market_weather_xd": weather_xd,
+            "unknown": unknown,
+        },
+        "bullets": bullets,
+    }
+
+
+def _render_human_summary(task: TaskSpec, result: RunResult) -> list[str]:
+    return [f"- {line}" for line in build_market_summary(task, result)["bullets"]]
 
 
 def render_run_report(task: TaskSpec, result: RunResult) -> str:

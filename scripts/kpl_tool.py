@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.apps.kaipanla.report import render_run_report
+from src.apps.kaipanla.report import build_market_summary, render_run_report
 from src.apps.kaipanla.runner import run_task
 from src.apps.kaipanla.task import RunResult, TaskSpec
 from src.apps.kaipanla.verify import render_verification_summary, verify_run
@@ -56,6 +56,7 @@ def cmd_capture(args) -> dict:
         "command": "capture",
         "task": task.to_dict(),
         "run": run.to_dict(),
+        "market_summary": build_market_summary(task, run),
     }
     return payload
 
@@ -71,6 +72,8 @@ def cmd_verify(args) -> dict:
         "run": run.to_dict() if run else None,
         "task": task.to_dict() if task else None,
     }
+    if run and task:
+        payload["market_summary"] = build_market_summary(task, run)
     return payload
 
 
@@ -88,6 +91,7 @@ def cmd_report(args) -> dict:
         "task": task.to_dict(),
         "run": run.to_dict(),
         "report_text": report,
+        "market_summary": build_market_summary(task, run),
     }
     return payload
 
@@ -107,6 +111,8 @@ def cmd_latest(args) -> dict:
         "run": run.to_dict(),
         "task": task.to_dict() if task else None,
     }
+    if task:
+        payload["market_summary"] = build_market_summary(task, run)
     return payload
 
 
