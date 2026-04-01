@@ -46,24 +46,34 @@ def build_stub_manifest() -> AppManifest:
 
     return AppManifest(
         app_name="开盘啦",
-        package_name=None,
-        launch_activity=None,
+        package_name="com.aiyu.kaipanla",
+        launch_activity=".splash.SplashActivity",
         db_path="data/kaipanla.db",
         proxy_port=8080,
-        target_hosts=set(),
-        target_paths=[],
+        target_hosts={
+            "applhb.longhuvip.com",
+            "apparticle.longhuvip.com",
+            "apphwhq.longhuvip.com",
+            "apppage.longhuvip.com",
+            "apphotfix.longhuvip.com",
+        },
+        target_paths=[
+            "/w1/api/index.php",
+            "/w44/web/index.html",
+            "/hotfix/path",
+        ],
         page_markers={
-            "home": (),
-            "list": (),
-            "detail": (),
-            "login": (),
-            "captcha": (),
-            "unknown_dialog": (),
+            "home": ("首页", "行情", "自选股", "龙虎榜", "推荐"),
+            "list": ("列表", "详情"),
+            "detail": ("详情", "评论"),
+            "login": ("登录", "注册"),
+            "captcha": ("验证码", "安全验证"),
+            "unknown_dialog": ("知道了", "稍后再说", "取消"),
         },
         notes=[
-            "首次验证时先确认包名、启动页、首页和目标列表页。",
+            "首次验证时已确认包名、启动页和首页结构。",
+            "市场情绪页已抓到真实响应，可作为首个可落库页面。",
             "网络层优先看是否存在标准 JSON 接口或 WebSocket。",
             "如果出现证书校验失败，先记录，不要直接硬改解析器。",
         ],
     )
-

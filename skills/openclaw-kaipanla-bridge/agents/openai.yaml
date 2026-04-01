@@ -1,0 +1,7 @@
+interface:
+  display_name: "OpenClaw Kaipanla Bridge"
+  short_description: "开盘啦 A 股行情桥接技能"
+  default_prompt: "使用 $openclaw-kaipanla-bridge 抓取、校验和回读开盘啦的 A 股行情、题材和运行结果。"
+
+policy:
+  allow_implicit_invocation: true

@@ -274,3 +274,97 @@ class TestParseComments:
         assert comments[0].author_name == "v5用户"
         assert comments[0].create_time == 1766446738
         assert comments[0].note_id == "note_v5"
+
+
+class TestParseKaipanlaIndex:
+    def test_parses_msgtop_and_tcop_items(self):
+        parser = XHSParser()
+        data = {
+            "MsgTop": {
+                "List": [
+                    {
+                        "ID": "40627",
+                        "Title": "涨价榜",
+                        "ZhaiYao": "解读机会",
+                        "AID": "180",
+                        "Account": "财联社",
+                        "Like": 0,
+                        "CreateTime": "1774944155",
+                        "img": {"List": ["https://example.com/a.jpg"], "Type": 3},
+                        "Stock": [["801649", "两轮车", "1.63"]],
+                    }
+                ]
+            },
+            "TCop": {
+                "List": [
+                    {
+                        "CID": 7608,
+                        "Title": "力箭二号",
+                        "Source": "开盘啦",
+                        "Kword": "中科宇航",
+                        "TimeStamp": 1774881241,
+                        "Stocks": [{"Code": "002361", "Name": "神剑股份", "Rate": 10}],
+                    }
+                ]
+            },
+        }
+
+        items = parser.parse("/w1/api/index.php", data)
+
+        assert len(items) == 2
+        assert items[0].note_id == "msgtop:40627"
+        assert items[0].title == "涨价榜"
+        assert items[0].author_name == "财联社"
+        assert items[0].cover_url == "https://example.com/a.jpg"
+        assert items[0].topics == ["两轮车"]
+
+        assert items[1].note_id == "tcop:7608"
+        assert items[1].title == "力箭二号"
+        assert items[1].author_name == "开盘啦"
+        assert items[1].comment_count == 1
+        assert items[1].topics == ["神剑股份"]
+
+
+class TestParseKaipanlaMarketSentiment:
+    def test_parses_market_sentiment_sections(self):
+        parser = XHSParser()
+        data = {
+            "DaBanList": {
+                "ZHQD": 35,
+                "tZhangTing": 53,
+                "tDieTing": 1,
+                "tFengBan": 75.7143,
+                "lZhangTing": 62,
+            },
+            "CWeatherVaneList": {
+                "SZ": [["000720", "新能泰山", 10.08, "电气设备"]],
+                "XD": [["002310", "东方新能", -10, "风电"]],
+            },
+            "BaceFaceList": [["两轮车", "1.63", 801649]],
+            "FKYDSixList": [{"StockID": "601012", "StockName": "隆基绿能", "zhangfu": "-2.34%"}],
+            "PHBList": [["002361", "神剑股份", 10, 0, "4连板", "商业航天", "商业航天;2|4连板;1"]],
+            "JJXTList": [["000592", "平潭发展", 3.79, 214172478, "海峡两岸"]],
+            "ZQFKList": [["601138", "工业富联", 5340, 4.44, "海峡两岸、机器人概念、年报增长"]],
+            "ZDJKList": [{"StockID": "605255", "StockName": "天普股份"}],
+            "PLZList": [["000890", "法尔胜", 1, "连续30个交易日内涨幅偏离值累计达到 200%", 0, 28, 191.14, "涨幅达到3.11%将触发严重异动", 3.11, 191.14, "0000-00-00", 15.91, "未达到严重异动条件"]],
+            "ZLSCList": [["002594", "比亚迪", "801199", "汽车零部件", 105.25, -0.75, 1719883800, "趋势锁仓", -56.86, "新能源汽车龙头：6月新能源汽车销量341658辆，去年同期253046辆。", 0]],
+        }
+
+        items = parser.parse("/w1/api/index.php", data)
+
+        assert len(items) == 11
+        assert items[0].note_id == "market:summary:unknown"
+        assert items[0].note_type == "market_emotion_summary"
+        assert items[0].title == "市场情绪总览"
+        assert items[0].source == "market_sentiment"
+        assert items[0].desc == "综合强度35，涨停53，跌停1，炸板率75.7143，连板率62"
+        assert any(item.note_id == "market:weather:SZ:unknown" for item in items)
+        assert any(item.note_id == "market:weather:XD:unknown" for item in items)
+        assert any(item.note_id == "market:baceface:801649" and item.title == "两轮车" for item in items)
+
+        assert any(item.note_id == "market:phb:002361" for item in items)
+        assert any(item.note_id == "market:jjxt:000592" for item in items)
+        assert any(item.note_id == "market:zqfk:601138" for item in items)
+        assert any(item.note_id == "market:plz:000890" for item in items)
+        assert any(item.note_id == "market:zlsc:002594" for item in items)
+        assert any(item.note_id == "market:zdjk:605255" for item in items)

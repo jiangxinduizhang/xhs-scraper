@@ -2,38 +2,45 @@
 全局配置 - 所有模块共享的常量
 """
 
+from __future__ import annotations
+
+import os
+
+
+def _env_csv(name: str, default: str) -> list[str]:
+    value = os.getenv(name, default)
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
 # ─── 设备 ────────────────────────────────────────────────────
-DEVICE_SERIAL = None          # None = 自动选唯一 USB 设备
-APP_PACKAGE = "com.xingin.xhs"
-APP_ACTIVITY = ".activity.SplashActivity"
+DEVICE_SERIAL = os.getenv("DEVICE_SERIAL") or None
+APP_PACKAGE = os.getenv("APP_PACKAGE", "com.xingin.xhs")
+APP_ACTIVITY = os.getenv("APP_ACTIVITY", ".activity.SplashActivity")
 
 # ─── 代理 ────────────────────────────────────────────────────
 PROXY_PORT = 8080
 
-# 实测（v9.19.5）各功能使用的主机和路径
-TARGET_HOSTS = {
-    "so.xiaohongshu.com",      # 搜索
-    "rec.xiaohongshu.com",     # 首页推荐 feed
-    "edith.xiaohongshu.com",   # 详情、评论、用户
-}
+# 默认仍保留小红书配置，便于老测试继续运行；可通过环境变量覆盖到开盘啦
+TARGET_HOSTS = set(
+    _env_csv(
+        "TARGET_HOSTS",
+        "so.xiaohongshu.com,rec.xiaohongshu.com,edith.xiaohongshu.com",
+    )
+)
 
-TARGET_PATHS = [
-    # 搜索（so.xiaohongshu.com）
-    "/api/sns/v10/search/notes",       # 搜索笔记列表
-    # 首页推荐（rec.xiaohongshu.com）
-    "/api/sns/v6/homefeed",            # 推荐 feed
-    "/api/sns/v1/followings/reddot",   # 关注 feed（可选）
-    # 笔记详情（edith.xiaohongshu.com）
-    "/api/sns/v1/note/detailfeed",     # 帖子详情
-    # 评论（edith.xiaohongshu.com）—— 实测 v9.19.5 为 v5
-    "/api/sns/v5/note/comment/list",
-    "/api/sns/v5/note/comment/sub",
-    # 用户笔记（edith.xiaohongshu.com）
+TARGET_PATHS = _env_csv(
+    "TARGET_PATHS",
+    "/api/sns/v10/search/notes,"
+    "/api/sns/v6/homefeed,"
+    "/api/sns/v1/followings/reddot,"
+    "/api/sns/v1/note/detailfeed,"
+    "/api/sns/v5/note/comment/list,"
+    "/api/sns/v5/note/comment/sub,"
     "/api/sns/v2/user/notes",
-]
+)
 
 # 向后兼容：单 host 变量（addon 中同时检查 TARGET_HOSTS）
-TARGET_HOST = "edith.xiaohongshu.com"
+TARGET_HOST = next(iter(TARGET_HOSTS), "")
 
 # ─── 操作随机化 ───────────────────────────────────────────────
 SWIPE_DURATION_RANGE = (0.3, 0.6)     # 滑动持续时间（秒）

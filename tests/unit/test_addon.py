@@ -200,6 +200,12 @@ class TestDetectSource:
     def test_unknown(self):
         assert XHSAddon._detect_source("/api/something/else") == ""
 
+    def test_index(self):
+        assert XHSAddon._detect_source("/w1/api/index.php") == "index"
+
+    def test_market_sentiment(self):
+        assert XHSAddon._detect_source("/w1/api/index.php", {"BaceFaceList": []}) == "market_sentiment"
+
 
 # ─── 懒加载属性 ──────────────────────────────────────────────
 

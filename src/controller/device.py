@@ -35,15 +35,52 @@ def connect_device(serial: str = None):
     return d
 
 
-def launch_app(d, fresh_start: bool = False):
+def launch_app(d, fresh_start: bool = False, package: str | None = None, activity: str | None = None):
     """启动小红书，处理启动弹窗"""
+    package_name = package or config.APP_PACKAGE
+    launch_activity = activity or config.APP_ACTIVITY
     if fresh_start:
-        d.app_stop(config.APP_PACKAGE)
+        d.app_stop(package_name)
         time.sleep(1)
 
-    d.app_start(config.APP_PACKAGE, use_monkey=False)
+    d.app_start(package_name, activity=launch_activity, use_monkey=False)
     time.sleep(3)
     _dismiss_startup_dialogs(d)
+
+
+def configure_proxy(port: int = None):
+    """配置 adb reverse + 全局代理。"""
+    port = port or config.PROXY_PORT
+    subprocess.run(["adb", "reverse", "tcp:%s" % port, "tcp:%s" % port], check=True)
+    subprocess.run(
+        ["adb", "shell", "su", "-c", f"settings put global http_proxy 127.0.0.1:{port}"],
+        check=True,
+    )
+
+
+def clear_proxy(port: int = None):
+    """清理 adb reverse + 全局代理。"""
+    port = port or config.PROXY_PORT
+    subprocess.run(
+        ["adb", "shell", "su", "-c", "settings put global http_proxy :0"],
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["adb", "shell", "su", "-c", "settings delete global http_proxy"],
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["adb", "reverse", "--remove", f"tcp:{port}"],
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["adb", "reverse", "--remove-all"],
+        capture_output=True,
+        text=True,
+    )
 
 
 def _dismiss_startup_dialogs(d):

@@ -2,21 +2,15 @@
 
 ## 角色定位
 
-Mac mini 作为执行机，负责：
+Mac mini 作为唯一开发与执行环境，负责：
 
 - 拉代码
+- 写代码
 - 装依赖
 - 运行 `mitmproxy`
 - 运行 `uiautomator2`
 - 调起 Node.js 的 Midscene
 - 连接已 root 的 Android 手机
-
-Windows 作为开发机，负责：
-
-- 写代码
-- 改文档
-- 提交分支
-- 推送代码到 fork
 
 ## 需要的物料
 
@@ -146,18 +140,13 @@ Windows 作为开发机，负责：
 
 ## 日常协作流程
 
-### Windows
-
-- 改代码
-- 提交到 `dev-kpl`
-- 推送到 fork
-
 ### Mac mini
 
 - `git pull`
+- 改代码
 - 跑验证
 - 记录结果
-- 有问题回到 Windows 再改
+- 有问题继续在本机修正
 
 ## 验证记录建议
 
@@ -171,4 +160,3 @@ Windows 作为开发机，负责：
 - 抓包结果
 - UI 结果
 - 结论
-

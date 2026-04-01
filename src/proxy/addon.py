@@ -68,9 +68,9 @@ class XHSAddon:
         try:
             items = self.parser.parse(path, data)
             if items:
-                source = self._detect_source(path)
+                source = self._detect_source(path, data)
                 for item in items:
-                    if hasattr(item, 'source'):
+                    if hasattr(item, 'source') and not item.source:
                         item.source = source
                 self.db.save(items, source=source)
                 log.info(f"已保存 {len(items)} 条 [{source}]: {path}")
@@ -88,8 +88,12 @@ class XHSAddon:
         return any(path.startswith(p) for p in config.TARGET_PATHS)
 
     @staticmethod
-    def _detect_source(path: str) -> str:
+    def _detect_source(path: str, data: dict | None = None) -> str:
         """根据 API 路径判断数据来源"""
+        if "/w1/api/index.php" in path:
+            if isinstance(data, dict) and "BaceFaceList" in data:
+                return "market_sentiment"
+            return "index"
         if "search" in path:
             return "search"
         elif "homefeed" in path:
