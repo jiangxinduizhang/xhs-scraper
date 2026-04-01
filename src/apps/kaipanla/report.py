@@ -15,7 +15,37 @@ def _count(result: RunResult, key: str) -> int:
     return int((result.note_type_counts or {}).get(key, 0) or 0)
 
 
+def _score_market_record(data: dict) -> int:
+    if not isinstance(data, dict):
+        return -1
+    score = 0
+    keys = [
+        "DaBanList",
+        "BaceFaceList",
+        "CWeatherVaneList",
+        "PHBList",
+        "JJXTList",
+        "ZQFKList",
+        "ZLSCList",
+        "FKYDSixList",
+        "PLZList",
+    ]
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, dict) and value:
+            score += 3
+        elif isinstance(value, list) and value:
+            score += 3
+    if data.get("Day"):
+        score += 1
+    if data.get("Time"):
+        score += 1
+    return score
+
+
 def _find_latest_raw_record(result: RunResult) -> dict:
+    best_data: dict = {}
+    best_score = -1
     for raw_path in result.raw_paths or []:
         path = Path(raw_path)
         if not path.is_absolute():
@@ -23,15 +53,17 @@ def _find_latest_raw_record(result: RunResult) -> dict:
         if not path.exists():
             continue
         lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        for line in reversed(lines):
+        for line in lines:
             try:
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
             data = rec.get("data")
-            if isinstance(data, dict) and ("DaBanList" in data or "BaceFaceList" in data):
-                return data
-    return {}
+            score = _score_market_record(data) if isinstance(data, dict) else -1
+            if score > best_score:
+                best_score = score
+                best_data = data
+    return best_data
 
 
 def _topic_list(items, topic_index: int = 0, value_index: int = 1, limit: int = 3) -> list[str]:
