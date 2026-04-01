@@ -54,11 +54,37 @@ def _extract_record_ts(rec: dict, data: dict) -> tuple[str, int]:
     return raw_ts, data_time
 
 
-def _find_latest_raw_record(result: RunResult) -> dict:
+def _build_selected_snapshot(rec: dict, data: dict, reason: str) -> dict:
+    daban = data.get("DaBanList") if isinstance(data, dict) else {}
+    phb_title = ""
+    if isinstance(data, dict):
+        phb_title = str(data.get("PHBTitle") or data.get("PHBtitle") or "")
+    return {
+        "raw_ts": str(rec.get("ts") or "") if isinstance(rec, dict) else "",
+        "day": str(data.get("Day") or "") if isinstance(data, dict) else "",
+        "time": str(data.get("Time") or "") if isinstance(data, dict) else "",
+        "phb_title": phb_title,
+        "reason": reason,
+        "source": "DaBanList",
+        "fields": {
+            "ZHQD": daban.get("ZHQD") if isinstance(daban, dict) else None,
+            "SZJS": daban.get("SZJS") if isinstance(daban, dict) else None,
+            "XDJS": daban.get("XDJS") if isinstance(daban, dict) else None,
+            "PPJS": daban.get("PPJS") if isinstance(daban, dict) else None,
+            "tZhangTing": daban.get("tZhangTing") if isinstance(daban, dict) else None,
+            "tDieTing": daban.get("tDieTing") if isinstance(daban, dict) else None,
+            "tFengBan": daban.get("tFengBan") if isinstance(daban, dict) else None,
+            "qscln": daban.get("qscln") if isinstance(daban, dict) else None,
+        },
+    }
+
+
+def _find_latest_raw_record(result: RunResult) -> tuple[dict, dict]:
     best_data: dict = {}
     best_score = -1
     best_raw_ts = ""
     best_data_time = -1
+    best_rec: dict = {}
     for raw_path in result.raw_paths or []:
         path = Path(raw_path)
         if not path.is_absolute():
@@ -85,7 +111,9 @@ def _find_latest_raw_record(result: RunResult) -> dict:
                 best_data = data
                 best_raw_ts = raw_ts
                 best_data_time = data_time
-    return best_data
+                best_rec = rec
+    selected_snapshot = _build_selected_snapshot(best_rec, best_data, "latest_valid_market_record_by_time_then_raw_ts") if best_data else {}
+    return best_data, selected_snapshot
 
 
 def _find_previous_market_record(result: RunResult, current_day: str | None) -> dict:
@@ -372,7 +400,7 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     weather_present = any(x > 0 for x in [weather_sz, weather_xd, summary])
     comment_present = plz > 0
 
-    raw = _find_latest_raw_record(result)
+    raw, selected_snapshot = _find_latest_raw_record(result)
     previous_raw = _find_previous_market_record(result, str(raw.get("Day") or ""))
     da_ban = raw.get("DaBanList") if isinstance(raw, dict) else {}
     baceface_list = raw.get("BaceFaceList") if isinstance(raw, dict) else []
@@ -456,6 +484,9 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
             f"页面: {task.page}",
             f"页面日期: {raw.get('Day', '')}",
             f"页面时间: {raw.get('Time', '')}",
+            f"selected raw ts: {selected_snapshot.get('raw_ts', '')}",
+            f"selected PHBTitle: {selected_snapshot.get('phb_title', '')}",
+            f"selected reason: {selected_snapshot.get('reason', '')}",
             "主值来源: DaBanList",
             f"综合强度: {strength_score:.0f}",
             f"上涨家数: {up_count}",
@@ -514,6 +545,7 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
             "blowup_rate": blowup_rate,
         },
         "bullets": bullets,
+        "selected_snapshot": selected_snapshot,
         "raw_snapshot": {
             "hot_themes": hot_themes,
             "strong_weather": strong_weather,

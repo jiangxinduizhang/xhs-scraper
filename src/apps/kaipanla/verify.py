@@ -20,10 +20,13 @@ class VerificationResult:
     status: str
     checks: list[str] = field(default_factory=list)
     details: list[str] = field(default_factory=list)
+    selected_snapshot: dict = field(default_factory=dict)
+    flags: dict = field(default_factory=dict)
 
 
-def _find_latest_daban_snapshot(raw_paths: list[str] | None) -> dict:
+def _find_latest_daban_snapshot(raw_paths: list[str] | None) -> tuple[dict, dict]:
     best_data: dict = {}
+    best_rec: dict = {}
     best_time = -1
     best_ts = ""
     for raw in raw_paths or []:
@@ -52,7 +55,16 @@ def _find_latest_daban_snapshot(raw_paths: list[str] | None) -> dict:
                 best_time = current_time
                 best_ts = current_ts
                 best_data = data
-    return best_data
+                best_rec = rec
+    selected_snapshot = {
+        "raw_ts": str(best_rec.get("ts") or "") if isinstance(best_rec, dict) else "",
+        "day": str(best_data.get("Day") or "") if isinstance(best_data, dict) else "",
+        "time": str(best_data.get("Time") or "") if isinstance(best_data, dict) else "",
+        "phb_title": str(best_data.get("PHBTitle") or best_data.get("PHBtitle") or "") if isinstance(best_data, dict) else "",
+        "reason": "latest_valid_daban_snapshot_by_time_then_raw_ts",
+        "source": "DaBanList",
+    } if best_data else {}
+    return best_data, selected_snapshot
 
 
 def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> VerificationResult:
@@ -121,7 +133,7 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         if error_stage:
             details.append(f"error_stage={error_stage}")
 
-    latest_snapshot = _find_latest_daban_snapshot(result.raw_paths)
+    latest_snapshot, selected_snapshot = _find_latest_daban_snapshot(result.raw_paths)
     latest_daban = latest_snapshot.get("DaBanList") if isinstance(latest_snapshot, dict) else {}
     required_main_fields = ["ZHQD", "SZJS", "XDJS", "PPJS", "tZhangTing", "tDieTing", "tFengBan", "qscln"]
     missing_main_fields = [field for field in required_main_fields if not latest_daban or latest_daban.get(field) in (None, "")]
@@ -140,6 +152,14 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             f"tFengBan={latest_daban.get('tFengBan')} "
             f"qscln={latest_daban.get('qscln')}"
         )
+        details.append(
+            "selected_snapshot: "
+            f"raw_ts={selected_snapshot.get('raw_ts', '')} "
+            f"day={selected_snapshot.get('day', '')} "
+            f"time={selected_snapshot.get('time', '')} "
+            f"phb_title={selected_snapshot.get('phb_title', '')} "
+            f"reason={selected_snapshot.get('reason', '')}"
+        )
 
     required_events = {"launch_app", "home_reached", "market_reached", "emotion_reached", "request_captured", "report_written", "run_written"}
     seen_events = {event.get("name", "") for event in getattr(result, "step_events", []) or []}
@@ -155,6 +175,12 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         status="verified" if ok else "needs_attention",
         checks=checks,
         details=details,
+        selected_snapshot=selected_snapshot,
+        flags={
+            "selected_snapshot_is_latest": bool(selected_snapshot),
+            "required_main_fields_complete": not missing_main_fields,
+            "run_succeeded": result.status in ("success", "partial"),
+        },
     )
 
 
