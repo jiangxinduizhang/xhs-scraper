@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +20,39 @@ class VerificationResult:
     status: str
     checks: list[str] = field(default_factory=list)
     details: list[str] = field(default_factory=list)
+
+
+def _find_latest_daban_snapshot(raw_paths: list[str] | None) -> dict:
+    best_data: dict = {}
+    best_time = -1
+    best_ts = ""
+    for raw in raw_paths or []:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            data = rec.get("data")
+            if not isinstance(data, dict) or not isinstance(data.get("DaBanList"), dict):
+                continue
+            try:
+                current_time = int(data.get("Time") or 0)
+            except (TypeError, ValueError):
+                current_time = 0
+            current_ts = str(rec.get("ts") or "")
+            if current_time > best_time or (current_time == best_time and current_ts > best_ts):
+                best_time = current_time
+                best_ts = current_ts
+                best_data = data
+    return best_data
 
 
 def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> VerificationResult:
@@ -76,6 +110,26 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
     if result.status not in ("success", "partial"):
         ok = False
         details.append(f"run.status={result.status}")
+
+    latest_snapshot = _find_latest_daban_snapshot(result.raw_paths)
+    latest_daban = latest_snapshot.get("DaBanList") if isinstance(latest_snapshot, dict) else {}
+    required_main_fields = ["ZHQD", "SZJS", "XDJS", "PPJS", "tZhangTing", "tDieTing", "tFengBan", "qscln"]
+    missing_main_fields = [field for field in required_main_fields if not latest_daban or latest_daban.get(field) in (None, "")]
+    if missing_main_fields:
+        ok = False
+        details.append(f"主值字段缺失: {', '.join(missing_main_fields)}")
+    else:
+        details.append(
+            "最新主值快照: "
+            f"ZHQD={latest_daban.get('ZHQD')} "
+            f"SZJS={latest_daban.get('SZJS')} "
+            f"XDJS={latest_daban.get('XDJS')} "
+            f"PPJS={latest_daban.get('PPJS')} "
+            f"tZhangTing={latest_daban.get('tZhangTing')} "
+            f"tDieTing={latest_daban.get('tDieTing')} "
+            f"tFengBan={latest_daban.get('tFengBan')} "
+            f"qscln={latest_daban.get('qscln')}"
+        )
 
     required_events = {"launch_app", "home_reached", "market_reached", "emotion_reached", "request_captured", "report_written", "run_written"}
     seen_events = {event.get("name", "") for event in getattr(result, "step_events", []) or []}

@@ -43,9 +43,22 @@ def _score_market_record(data: dict) -> int:
     return score
 
 
+def _extract_record_ts(rec: dict, data: dict) -> tuple[str, int]:
+    raw_ts = str(rec.get("ts") or "") if isinstance(rec, dict) else ""
+    data_time = 0
+    if isinstance(data, dict):
+        try:
+            data_time = int(data.get("Time") or 0)
+        except (TypeError, ValueError):
+            data_time = 0
+    return raw_ts, data_time
+
+
 def _find_latest_raw_record(result: RunResult) -> dict:
     best_data: dict = {}
     best_score = -1
+    best_raw_ts = ""
+    best_data_time = -1
     for raw_path in result.raw_paths or []:
         path = Path(raw_path)
         if not path.is_absolute():
@@ -60,9 +73,18 @@ def _find_latest_raw_record(result: RunResult) -> dict:
                 continue
             data = rec.get("data")
             score = _score_market_record(data) if isinstance(data, dict) else -1
-            if score > best_score:
+            if score < 0:
+                continue
+            raw_ts, data_time = _extract_record_ts(rec, data if isinstance(data, dict) else {})
+            if (
+                score > best_score
+                or (score == best_score and data_time > best_data_time)
+                or (score == best_score and data_time == best_data_time and raw_ts > best_raw_ts)
+            ):
                 best_score = score
                 best_data = data
+                best_raw_ts = raw_ts
+                best_data_time = data_time
     return best_data
 
 
@@ -391,11 +413,15 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     lock_positions = [f"{item[1]} {item[7]} 题材:{item[3]} 当日涨跌:{item[5]}%" for item in (zlsclist or [])[:3] if isinstance(item, list) and len(item) > 7]
     fkyd_focus = [f"{item.get('StockName','')} {item.get('zhangfu','')}" for item in (fkyd_list or [])[:3] if isinstance(item, dict)]
 
+    actual_amount_raw = int(_safe_num(da_ban.get("qscln", 0), 0)) if isinstance(da_ban, dict) else 0
+    actual_amount_display = int(round(actual_amount_raw / 10000)) if actual_amount_raw else 0
+
     market_overview = [
         f"上涨家数 {up_count} / 下跌家数 {down_count} / 平盘 {flat_count}",
         f"涨停 {up_limit} / 跌停 {down_limit}",
         f"综合强度 {strength_score:.0f}",
         f"炸板率 {blowup_rate:.2f}%",
+        f"沪深实际量能 {actual_amount_display}",
     ]
 
     risk_flags = weak_weather + ([f"炸板率偏高: {blowup_rate:.2f}%"] if blowup_rate >= 35 else [])
@@ -420,11 +446,27 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
         if day_compare:
             bullets.extend(day_compare["summary"][:2])
         bullets.extend(review_tone)
+        bullets.append(f"验真主值：综合强度 {strength_score:.0f}，上涨 {up_count}，下跌 {down_count}，平盘 {flat_count}，涨停 {up_limit}，跌停 {down_limit}，炸板率 {blowup_rate:.2f}%，沪深实际量能 {actual_amount_display}。")
         bullets.append(parser_confidence_text)
 
     sections = {
         "market_overview": market_overview,
         "emotion_judgement": [f"情绪判断: {mood}", mood_reason, f"上涨/下跌比约 {breadth_ratio:.2f}"],
+        "verification_fields": [
+            f"页面: {task.page}",
+            f"页面日期: {raw.get('Day', '')}",
+            f"页面时间: {raw.get('Time', '')}",
+            "主值来源: DaBanList",
+            f"综合强度: {strength_score:.0f}",
+            f"上涨家数: {up_count}",
+            f"下跌家数: {down_count}",
+            f"平盘家数: {flat_count}",
+            f"涨停家数: {up_limit}",
+            f"跌停家数: {down_limit}",
+            f"炸板率: {blowup_rate:.2f}%",
+            f"沪深实际量能(raw): {actual_amount_raw}",
+            f"沪深实际量能(display): {actual_amount_display}",
+        ],
         "day_compare": day_compare,
         "hot_themes": hot_themes,
         "strong_watchlist": strong_weather or fkyd_focus,
