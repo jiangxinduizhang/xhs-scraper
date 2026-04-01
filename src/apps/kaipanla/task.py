@@ -23,6 +23,11 @@ class TaskSpec:
     app: str = "kaipanla"
     page: str = "market_emotion"
     goal: str = ""
+    preset: str = "market_emotion"
+    modules: list[str] = field(default_factory=list)
+    output: list[str] = field(default_factory=list)
+    compare: str = "previous_trading_day"
+    interpretation_style: str = "trader_recap"
     package_name: str = "com.aiyu.kaipanla"
     launch_activity: str = ".splash.SplashActivity"
     db_path: str = "data/kaipanla.db"
@@ -58,13 +63,27 @@ class TaskSpec:
         task_id = f"kpl-market-emotion-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         return cls(
             task_id=task_id,
+            page="market_emotion",
+            preset="market_emotion",
             goal="验证市场情绪页可稳定抓取并落库",
+            modules=["emotion", "ranking", "money_flow", "themes"],
+            output=["run", "report", "market_summary", "day_compare"],
+            compare="previous_trading_day",
+            interpretation_style="trader_recap",
             next_action_hint="继续抓行情页其他标签",
             notes=[
+                "当前默认预设任务是 market_emotion。",
                 "先保持最小闭环，不扩展多页面任务。",
                 "若抓取成功，优先输出可回读产物，再决定下一步。",
             ],
         )
+
+    @classmethod
+    def for_preset(cls, preset: str | None) -> "TaskSpec":
+        normalized = (preset or "market_emotion").strip().lower()
+        if normalized in {"market_emotion", "default", "latest_market"}:
+            return cls.market_emotion_default()
+        raise ValueError(f"unsupported preset: {preset}")
 
 
 @dataclass(slots=True)

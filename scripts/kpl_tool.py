@@ -19,10 +19,52 @@ from src.apps.kaipanla.task import RunResult, TaskSpec
 from src.apps.kaipanla.verify import render_verification_summary, verify_run
 
 
-def _load_task(task_path: str | None) -> TaskSpec:
+def _load_task(task_path: str | None, preset: str | None = None) -> TaskSpec:
     if task_path:
         return TaskSpec.load(task_path)
-    return TaskSpec.market_emotion_default()
+    return TaskSpec.for_preset(preset)
+
+
+def _task_meta(task: TaskSpec, *, used_default_preset: bool = False) -> dict:
+    return {
+        "preset": task.preset,
+        "page": task.page,
+        "modules": list(task.modules),
+        "output": list(task.output),
+        "compare": task.compare,
+        "interpretation_style": task.interpretation_style,
+        "used_default_preset": used_default_preset,
+        "message": "当前按默认预设 market_emotion 执行" if used_default_preset else f"当前按预设 {task.preset} 执行",
+    }
+
+
+def _intent_meta(command: str, *, task_path: str | None = None, preset: str | None = None, used_default_preset: bool = False) -> dict:
+    intent = "read"
+    if command == "capture":
+        intent = "capture"
+    elif command in {"status", "verify"}:
+        intent = "status"
+
+    resolution = "task_file"
+    if not task_path:
+        resolution = "default_preset" if used_default_preset else "explicit_preset"
+
+    if resolution == "task_file":
+        reason = "已提供 task 文件，按显式任务执行或回读"
+    elif resolution == "explicit_preset":
+        reason = f"未提供 task 文件，按显式 preset={preset or 'market_emotion'} 处理"
+    else:
+        reason = "未提供 task 文件，按当前默认预设 market_emotion 处理"
+
+    return {
+        "intent": intent,
+        "command": command,
+        "resolution": resolution,
+        "reason": reason,
+        "task_path_provided": bool(task_path),
+        "preset": preset or "market_emotion",
+        "used_default_preset": used_default_preset,
+    }
 
 
 def _load_run(run_path: str | Path) -> RunResult:
@@ -49,12 +91,15 @@ def _emit(payload: dict, pretty: bool = False) -> int:
 
 
 def cmd_capture(args) -> dict:
-    task = _load_task(args.task)
+    used_default_preset = not args.task and not args.preset
+    task = _load_task(args.task, args.preset)
     run = run_task(task)
     payload = {
         "ok": run.status in ("success", "partial"),
         "command": "capture",
+        "intent_meta": _intent_meta("capture", task_path=args.task, preset=args.preset, used_default_preset=used_default_preset),
         "task": task.to_dict(),
+        "task_meta": _task_meta(task, used_default_preset=used_default_preset),
         "run": run.to_dict(),
         "market_summary": build_market_summary(task, run),
     }
@@ -68,10 +113,13 @@ def cmd_verify(args) -> dict:
     payload = {
         "ok": verification.status == "verified",
         "command": "verify",
+        "intent_meta": _intent_meta("verify", task_path=args.task, preset=None, used_default_preset=False),
         "verification": asdict(verification),
         "run": run.to_dict() if run else None,
         "task": task.to_dict() if task else None,
     }
+    if task:
+        payload["task_meta"] = _task_meta(task)
     if run and task:
         payload["market_summary"] = build_market_summary(task, run)
     return payload
@@ -81,14 +129,18 @@ def cmd_report(args) -> dict:
     run = _load_run(args.run)
     if args.task:
         task = TaskSpec.load(args.task)
+        used_default_preset = False
     else:
         task_path = Path(args.run).with_suffix(".task.json")
-        task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.market_emotion_default()
+        used_default_preset = not task_path.exists()
+        task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset)
     report = render_run_report(task, run)
     payload = {
         "ok": True,
         "command": "report",
+        "intent_meta": _intent_meta("report", task_path=args.task, preset=args.preset, used_default_preset=used_default_preset),
         "task": task.to_dict(),
+        "task_meta": _task_meta(task, used_default_preset=used_default_preset),
         "run": run.to_dict(),
         "report_text": report,
         "market_summary": build_market_summary(task, run),
@@ -99,17 +151,26 @@ def cmd_report(args) -> dict:
 def cmd_latest(args) -> dict:
     path = _latest_run_path(args.runs_dir)
     if path is None:
-        return {"ok": False, "command": "latest", "message": "no run found", "run_path": None}
+        return {
+            "ok": False,
+            "command": "latest",
+            "intent_meta": _intent_meta("latest", task_path=None, preset=args.preset, used_default_preset=False),
+            "message": "no run found",
+            "run_path": None,
+        }
     run = _load_run(path)
     task_path = path.with_suffix(".task.json")
-    task = TaskSpec.load(task_path) if task_path.exists() else None
+    used_default_preset = not task_path.exists()
+    task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset)
     payload = {
         "ok": True,
         "command": "latest",
+        "intent_meta": _intent_meta("latest", task_path=str(task_path) if task_path.exists() else None, preset=args.preset, used_default_preset=used_default_preset),
         "run_path": str(path),
-        "task_path": str(task_path) if task else None,
+        "task_path": str(task_path) if task_path.exists() else None,
         "run": run.to_dict(),
         "task": task.to_dict() if task else None,
+        "task_meta": _task_meta(task, used_default_preset=used_default_preset),
     }
     if task:
         payload["market_summary"] = build_market_summary(task, run)
@@ -120,9 +181,16 @@ def cmd_status(args) -> dict:
     latest = cmd_latest(args)
     if not latest.get("ok"):
         latest["command"] = "status"
+        latest["intent_meta"] = _intent_meta("status", task_path=None, preset=args.preset, used_default_preset=False)
         return latest
     verification = verify_run(latest["run_path"])
     latest["command"] = "status"
+    latest["intent_meta"] = _intent_meta(
+        "status",
+        task_path=latest.get("task_path"),
+        preset=args.preset,
+        used_default_preset=latest.get("task_meta", {}).get("used_default_preset", False),
+    )
     latest["verification"] = asdict(verification)
     latest["ok"] = verification.status == "verified"
     return latest
@@ -136,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_capture = sub.add_parser("capture", help="execute a capture task")
     p_capture.add_argument("--task", help="task JSON path")
+    p_capture.add_argument("--preset", default="market_emotion", help="preset task name")
 
     p_verify = sub.add_parser("verify", help="verify a completed run")
     p_verify.add_argument("--run", required=True, help="run JSON path")
@@ -144,12 +213,15 @@ def main(argv: list[str] | None = None) -> int:
     p_report = sub.add_parser("report", help="render a run report")
     p_report.add_argument("--run", required=True, help="run JSON path")
     p_report.add_argument("--task", help="task JSON path")
+    p_report.add_argument("--preset", default="market_emotion", help="preset task name")
 
     p_latest = sub.add_parser("latest", help="show the latest run")
     p_latest.add_argument("--runs-dir", default="runs", help="runs directory")
+    p_latest.add_argument("--preset", default="market_emotion", help="fallback preset when task file is missing")
 
     p_status = sub.add_parser("status", help="verify the latest run")
     p_status.add_argument("--runs-dir", default="runs", help="runs directory")
+    p_status.add_argument("--preset", default="market_emotion", help="fallback preset when task file is missing")
 
     args = parser.parse_args(argv)
 
