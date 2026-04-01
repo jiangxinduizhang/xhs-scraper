@@ -44,18 +44,16 @@ description: "用于抓取、校验和回读开盘啦中的 A 股行情与题材
 
 ## 定位约定
 
-- 安装时会把当前仓库根目录写入已安装 skill 的 `repo-root.txt`。
+- 首次使用且无法定位仓库时，先向人类确认 xhs-scraper 仓库根目录的绝对路径。
+- 确认后，将该路径写入当前 skill 目录下的 `repo-root.txt`（仅一行，不带解释），用于后续持久化。
 - launcher 会优先读取 `repo-root.txt`，再读 `OPENCLAW_KPL_REPO_ROOT` / `KPL_REPO_ROOT`，最后才向上搜索当前工作目录。
 - launcher 在定位到仓库根目录后会自动切换到该目录再执行命令。
 - 如果命令要显式指定仓库根目录，可用 `--repo-root`。
+- 除非人类明确说明仓库迁移或 `repo-root.txt` 已失效，否则不要重复询问路径。
 
 ## 调用方式
 
-先安装 skill，再调用桥接脚本：
-
-```bash
-bash scripts/install_openclaw_skill.sh
-```
+将本 skill 目录放入 OpenClaw 可扫描的 `skills/` 目录后直接使用。
 
 优先使用 bundled launcher：
 
