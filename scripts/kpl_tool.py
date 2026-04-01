@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -69,6 +70,88 @@ def _intent_meta(command: str, *, task_path: str | None = None, preset: str | No
 
 def _load_run(run_path: str | Path) -> RunResult:
     return RunResult.load(run_path)
+
+
+def _contains_any(text: str, words: list[str]) -> bool:
+    return any(word in text for word in words)
+
+
+def _parse_focus(text: str) -> list[str]:
+    focus: list[str] = []
+    mapping = [
+        ("day_compare", ["对比", "比较", "昨天", "昨日", "上一交易日", "前一天"]),
+        ("hot_themes", ["热点", "主线", "题材", "风口"]),
+        ("money_flow", ["资金", "主力", "节奏"]),
+        ("risk_flags", ["风险", "弱势", "退潮", "炸板"]),
+        ("ranking_focus", ["排行", "龙虎", "辨识度", "连板"]),
+        ("status_only", ["运行状态", "状态", "成功没", "成功了吗", "verify", "验证"]),
+    ]
+    for key, words in mapping:
+        if _contains_any(text, words):
+            focus.append(key)
+    return focus
+
+
+def _parse_style(text: str) -> str:
+    if _contains_any(text, ["结构化", "json", "机器可读", "字段"]):
+        return "structured"
+    if _contains_any(text, ["人话", "复盘", "复盘口吻", "交易员", "trader"]):
+        return "trader_recap"
+    if _contains_any(text, ["简短", "简洁", "一句话", "只要结论"]):
+        return "brief"
+    return "human_summary"
+
+
+def parse_nl_request(text: str, *, default_preset: str = "market_emotion") -> dict:
+    normalized = re.sub(r"\s+", "", text.lower())
+    preset = default_preset
+    intent = "read"
+
+    if _contains_any(normalized, ["运行状态", "状态", "成功没", "成功了吗", "verify", "验证"]):
+        intent = "status"
+    elif _contains_any(normalized, ["抓取", "重抓", "重新抓", "重新跑", "执行", "采集", "刷新", "更新最新"]):
+        intent = "capture"
+    elif _contains_any(normalized, ["看看", "读取", "总结", "报告", "盘面", "市场情况", "最新结果", "最新情况"]):
+        intent = "read"
+
+    focus = _parse_focus(normalized)
+    style = _parse_style(normalized)
+    compare = "previous_trading_day" if "day_compare" in focus else "none"
+    output = ["run", "report", "market_summary"]
+    if "day_compare" in focus:
+        output.append("day_compare")
+    if "status_only" in focus and intent == "status":
+        output = ["verification"]
+
+    read_mode = "latest"
+    if intent == "status":
+        read_mode = "status"
+    elif intent == "read":
+        if _contains_any(normalized, ["报告", "总结", "解读", "盘面摘要", "人话", "复盘"]):
+            read_mode = "report"
+        else:
+            read_mode = "latest"
+
+    ambiguous = not _contains_any(normalized, ["开盘啦", "市场", "盘面", "情绪", "运行状态", "报告", "抓取", "采集", "最新结果"])
+
+    clarification_question = None
+    if ambiguous:
+        clarification_question = "你是想执行一次抓取、查看运行状态，还是读取最近一次结果？"
+
+    return {
+        "ok": not ambiguous,
+        "text": text,
+        "intent": intent,
+        "preset": preset,
+        "focus": focus,
+        "style": style,
+        "compare": compare,
+        "output": output,
+        "read_mode": read_mode,
+        "needs_clarification": ambiguous,
+        "clarification_question": clarification_question,
+        "reason": "按关键词完成最小自然语言路由；当前仅支持有限意图、默认 preset 和基础 read 路由。",
+    }
 
 
 def _latest_run_path(runs_dir: str = "runs") -> Path | None:
@@ -196,6 +279,56 @@ def cmd_status(args) -> dict:
     return latest
 
 
+def cmd_ask(args) -> dict:
+    parsed = parse_nl_request(args.text, default_preset=args.preset)
+    payload = {
+        "ok": parsed["ok"],
+        "command": "ask",
+        "execute": bool(args.execute),
+        "nl_request": parsed,
+    }
+    if parsed["needs_clarification"]:
+        payload["message"] = parsed["clarification_question"]
+        return payload
+
+    route_command = {
+        "capture": "capture",
+        "status": "status",
+        "read": parsed.get("read_mode", "latest"),
+    }[parsed["intent"]]
+
+    payload["suggested_route"] = {
+        "intent": parsed["intent"],
+        "preset": parsed["preset"],
+        "runs_dir": args.runs_dir,
+        "command": route_command,
+    }
+    if not args.execute:
+        payload["message"] = "已完成自然语言解析；当前为 dry-run，仅返回建议路由，未实际执行。"
+        return payload
+
+    if parsed["intent"] == "capture":
+        routed = cmd_capture(argparse.Namespace(task=None, preset=parsed["preset"]))
+    elif parsed["intent"] == "status":
+        routed = cmd_status(argparse.Namespace(runs_dir=args.runs_dir, preset=parsed["preset"]))
+    elif parsed.get("read_mode") == "report":
+        latest = cmd_latest(argparse.Namespace(runs_dir=args.runs_dir, preset=parsed["preset"]))
+        if not latest.get("ok"):
+            routed = latest
+        else:
+            routed = cmd_report(
+                argparse.Namespace(
+                    run=latest["run_path"],
+                    task=latest.get("task_path"),
+                    preset=parsed["preset"],
+                )
+            )
+    else:
+        routed = cmd_latest(argparse.Namespace(runs_dir=args.runs_dir, preset=parsed["preset"]))
+    payload["routed"] = routed
+    return payload
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Kaipanla machine-readable bridge")
     parser.add_argument("--pretty", action="store_true", help="pretty-print JSON")
@@ -223,6 +356,12 @@ def main(argv: list[str] | None = None) -> int:
     p_status.add_argument("--runs-dir", default="runs", help="runs directory")
     p_status.add_argument("--preset", default="market_emotion", help="fallback preset when task file is missing")
 
+    p_ask = sub.add_parser("ask", help="route a natural-language request")
+    p_ask.add_argument("text", help="natural-language request")
+    p_ask.add_argument("--runs-dir", default="runs", help="runs directory")
+    p_ask.add_argument("--preset", default="market_emotion", help="default preset for routing")
+    p_ask.add_argument("--execute", action="store_true", help="actually execute the routed command")
+
     args = parser.parse_args(argv)
 
     if args.command == "capture":
@@ -235,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(cmd_latest(args), pretty=args.pretty)
     if args.command == "status":
         return _emit(cmd_status(args), pretty=args.pretty)
+    if args.command == "ask":
+        return _emit(cmd_ask(args), pretty=args.pretty)
     raise SystemExit(f"unknown command: {args.command}")
 
 
