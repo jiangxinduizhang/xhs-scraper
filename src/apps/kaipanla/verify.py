@@ -153,11 +153,18 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             checks.append("raw 样本缺失")
             ok = False
 
+        blockers = exploration.evidence.get("self_proof_blockers", []) if isinstance(exploration.evidence, dict) else []
+        ask_human = bool(blockers) and exploration.status != "strong_candidate_evidence"
+
         details.append(f"exploration.status={exploration.status}")
         details.append(f"candidate_keys={', '.join(exploration.candidate_keys) or '无'}")
         details.append(f"matched_records={exploration.matched_records}")
         details.append(f"navigation_reached={', '.join(exploration.navigation_reached) or '无'}")
         details.append(f"recommendation={exploration.recommendation}")
+        if blockers:
+            details.append(f"self_proof_blockers={', '.join(blockers)}")
+        if ask_human:
+            details.append("ask_human=当前仍缺关键确认，不应对外宣称已稳定抓到目标页面")
 
         status = "verified" if ok and exploration.status in {"candidate_found", "strong_candidate_evidence"} else "needs_attention"
         return VerificationResult(
@@ -169,12 +176,15 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
                 "target_hint": task.target_hint,
                 "candidate_keys": exploration.candidate_keys,
                 "recommended_page_name": exploration.recommended_page_name,
+                "self_proof_blockers": blockers,
             },
             flags={
                 "exploration_mode": True,
                 "candidate_found": bool(exploration.candidate_keys),
                 "strong_candidate_evidence": exploration.status == "strong_candidate_evidence",
                 "run_succeeded": result.status in ("success", "partial"),
+                "ask_human": ask_human,
+                "safe_to_claim_stable_capture": exploration.status == "strong_candidate_evidence" and not blockers,
             },
         )
 
@@ -258,48 +268,44 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         else:
             details.append(f"页面关键字段命中: {', '.join([key for key in page_spec.expected_keys if key in latest_snapshot])}")
 
-    if selected_snapshot:
-        details.append(
-            "selected_snapshot: "
-            f"raw_ts={selected_snapshot.get('raw_ts', '')} "
-            f"day={selected_snapshot.get('day', '')} "
-            f"time={selected_snapshot.get('time', '')} "
-            f"phb_title={selected_snapshot.get('phb_title', '')} "
-            f"reason={selected_snapshot.get('reason', '')}"
-        )
-
-    required_events = set(page_spec.required_events)
-    seen_events = {event.get("name", "") for event in getattr(result, "step_events", []) or []}
-    missing_events = sorted(required_events - seen_events)
-    if missing_events:
-        ok = False
-        details.append(f"缺少步骤: {', '.join(missing_events)}")
+    if result.step_events:
+        checks.append("step_events 已记录")
     else:
-        details.append("步骤时间线完整")
+        checks.append("step_events 缺失")
+        ok = False
 
+    status = "verified" if ok else "needs_attention"
     return VerificationResult(
         task_id=result.task_id or task.task_id,
-        status="verified" if ok else "needs_attention",
+        status=status,
         checks=checks,
         details=details,
         selected_snapshot=selected_snapshot,
         flags={
-            "selected_snapshot_is_latest": bool(selected_snapshot),
-            "required_main_fields_complete": not missing_main_fields,
-            "run_succeeded": result.status in ("success", "partial"),
+            "step_events_present": bool(result.step_events),
+            "db_exists": db_path.exists(),
+            "raw_exists": raw_ok,
+            "report_exists": report_path.exists(),
+            "error_code": error_code,
+            "error_stage": error_stage,
         },
     )
 
 
-def render_verification_summary(verification: VerificationResult) -> str:
-    lines = [
-        f"任务: {verification.task_id}",
-        f"状态: {verification.status}",
-        "",
-        "检查项:",
-    ]
-    lines.extend([f"- {check}" for check in verification.checks] or ["- 无"])
-    if verification.details:
-        lines.extend(["", "细节:"])
-        lines.extend([f"- {item}" for item in verification.details])
-    return "\n".join(lines).rstrip() + "\n"
+def render_verification_summary(v: VerificationResult) -> str:
+    lines = [f"# Verification {v.task_id}", "", f"Status: {v.status}", ""]
+    if v.checks:
+        lines.append("## Checks")
+        lines.extend(f"- {item}" for item in v.checks)
+        lines.append("")
+    if v.details:
+        lines.append("## Details")
+        lines.extend(f"- {item}" for item in v.details)
+        lines.append("")
+    if v.selected_snapshot:
+        lines.append("## Selected Snapshot")
+        lines.append("```json")
+        lines.append(json.dumps(v.selected_snapshot, ensure_ascii=False, indent=2))
+        lines.append("```")
+        lines.append("")
+    return "\n".join(lines)

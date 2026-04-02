@@ -148,3 +148,54 @@ def test_kpl_tool_explore_dry_run(capsys):
     assert payload["command"] == "explore"
     assert payload["task"]["mode"] == "exploration"
     assert payload["execute"] is False
+    assert payload["loop_policy"]["max_rounds"] == 2
+
+
+def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
+    task_ids = []
+
+    def fake_run_task(task_obj):
+        task_ids.append(task_obj.task_id)
+        return RunResult(
+            task_id=task_obj.task_id,
+            status="success",
+            captured_count=1,
+            parsed_count=1,
+            step_events=[
+                {"name": "market_reached", "at": "2026-04-02T12:00:00"},
+                {"name": "dragon_tiger_reached", "at": "2026-04-02T12:00:01"},
+            ],
+        )
+
+    fake_exploration = {
+        "task_id": "demo",
+        "target_hint": "探索抓取龙虎榜",
+        "status": "candidate_found",
+        "candidate_keys": ["List"],
+        "matched_records": 1,
+        "navigation_reached": ["dragon_tiger_reached"],
+        "likely_noise_keys": ["DaBanList"],
+        "recommendation": "已发现候选块证据，但自证门未通过，暂不能宣称已抓到目标主块。",
+        "recommended_page_name": "dragon_tiger",
+        "evidence": {"self_proof_blockers": ["generic_list_dominant"]},
+    }
+
+    class FakeExploration:
+        evidence = {"self_proof_blockers": ["generic_list_dominant"]}
+        status = "candidate_found"
+        candidate_keys = ["List"]
+
+        def to_dict(self):
+            return fake_exploration
+
+    monkeypatch.setattr("scripts.kpl_tool.run_task", fake_run_task)
+    monkeypatch.setattr("scripts.kpl_tool.build_page_summary", lambda task, run: {"kind": "exploration"})
+    monkeypatch.setattr("scripts.kpl_tool.build_exploration_result", lambda *args, **kwargs: FakeExploration())
+
+    code = main(["explore", "探索抓取龙虎榜", "--execute", "--max-rounds", "2"])
+    payload = _load_stdout(capsys)
+
+    assert code == 0
+    assert payload["ask_human"] is True
+    assert payload["ask_human_question"]
+    assert len(payload["rounds"]) == 2

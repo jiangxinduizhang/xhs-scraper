@@ -318,6 +318,7 @@ def cmd_status(args) -> dict:
 
 def cmd_explore(args) -> dict:
     task = _load_exploration_task(args.text, args.preset)
+    max_rounds = max(1, int(getattr(args, "max_rounds", 2) or 2))
     payload = {
         "ok": True,
         "command": "explore",
@@ -327,17 +328,70 @@ def cmd_explore(args) -> dict:
             **_task_meta(task, used_default_preset=False),
             "mode": "exploration",
         },
+        "loop_policy": {
+            "max_rounds": max_rounds,
+            "auto_adjustments": [
+                "tighten_target_hint",
+                "narrow_goal_scope",
+            ],
+            "ask_human_when": [
+                "self_proof_blockers_persist",
+                "evidence_does_not_improve",
+            ],
+        },
     }
     if not args.execute:
         payload["message"] = "已生成 exploration task；当前为 dry-run，未实际执行。"
         return payload
 
-    run = run_task(task)
-    exploration = build_exploration_result(task.task_id, run, task.target_hint or task.goal)
-    payload["run"] = run.to_dict()
-    payload["page_summary"] = build_page_summary(task, run)
-    payload["exploration"] = exploration.to_dict()
-    payload["ok"] = run.status in ("success", "partial")
+    rounds = []
+    previous_blockers = None
+    previous_candidate_keys = None
+    final_run = None
+    final_exploration = None
+    ask_human = False
+
+    for round_no in range(1, max_rounds + 1):
+        if round_no > 1:
+            task.target_hint = f"{args.text}（收紧目标：优先识别主列表/主块，避免公共块）"
+            task.notes = list(task.notes) + [f"auto_round_{round_no}: tightened target hint for self-proof gate"]
+
+        run = run_task(task)
+        exploration = build_exploration_result(task.task_id, run, task.target_hint or task.goal)
+        blockers = exploration.evidence.get("self_proof_blockers", []) if isinstance(exploration.evidence, dict) else []
+        current_candidate_keys = tuple(exploration.candidate_keys)
+
+        rounds.append({
+            "round": round_no,
+            "task": task.to_dict(),
+            "run": run.to_dict(),
+            "exploration": exploration.to_dict(),
+            "ask_human": bool(blockers) and exploration.status != "strong_candidate_evidence",
+        })
+
+        final_run = run
+        final_exploration = exploration
+
+        if exploration.status == "strong_candidate_evidence" and not blockers:
+            break
+
+        no_improvement = previous_blockers == blockers and previous_candidate_keys == current_candidate_keys
+        if no_improvement or round_no >= max_rounds:
+            ask_human = True
+            break
+
+        previous_blockers = list(blockers)
+        previous_candidate_keys = current_candidate_keys
+
+    payload["rounds"] = rounds
+    payload["run"] = final_run.to_dict() if final_run else None
+    payload["page_summary"] = build_page_summary(task, final_run) if final_run else None
+    payload["exploration"] = final_exploration.to_dict() if final_exploration else None
+    payload["ask_human"] = ask_human
+    if ask_human:
+        payload["ask_human_reason"] = "自动探索已到停点或证据未明显改善，需人工确认目标范围后再继续。"
+        payload["ask_human_question"] = "你要锁定的是页面主列表/主块，还是页面内任意相关数据？"
+    payload["ok"] = bool(final_run and final_run.status in ("success", "partial"))
     return payload
 
 
@@ -421,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     p_explore = sub.add_parser("explore", help="assistant-directed exploration")
     p_explore.add_argument("text", help="exploration target")
     p_explore.add_argument("--preset", default="market_emotion", help="default preset/page for exploration bootstrap")
+    p_explore.add_argument("--max-rounds", type=int, default=2, help="max automatic exploration rounds before ask-human gate")
     p_explore.add_argument("--execute", action="store_true", help="actually execute the exploration task")
 
     p_ask = sub.add_parser("ask", help="route a natural-language request")

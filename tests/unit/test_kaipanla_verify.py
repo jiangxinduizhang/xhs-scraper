@@ -165,10 +165,45 @@ def test_verify_run_exploration_mode(tmp_path):
     assert verification.status == "verified"
     assert verification.flags["exploration_mode"] is True
     assert verification.flags["candidate_found"] is True
+    assert verification.flags["safe_to_claim_stable_capture"] is True
+
+
+def test_verify_run_exploration_mode_requests_human_when_blocked(tmp_path):
+    task = TaskSpec.for_exploration("探索抓取龙虎榜", page="dragon_tiger", preset="dragon_tiger")
+    task.runs_dir = str(tmp_path / "runs")
+    task.reports_dir = str(tmp_path / "reports")
+    task.raw_dir = str(tmp_path / "raw")
+
+    task_path = tmp_path / "runs" / f"{task.task_id}.task.json"
+    run_path = tmp_path / "runs" / f"{task.task_id}.json"
+    report_path = tmp_path / "reports" / f"{task.task_id}.md"
+    raw_path = tmp_path / "raw" / "20260402.jsonl"
+
+    task.save(task_path)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text('{"path":"/w1/api/index.php","data":{"List":[1,2,3],"DaBanList":{"ZHQD":31},"Day":"2026-04-02","Time":1775097000}}\n', encoding="utf-8")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report", encoding="utf-8")
+
+    result = RunResult(
+        task_id=task.task_id,
+        status="success",
+        raw_paths=[str(raw_path)],
+        report_path=str(report_path),
+        step_events=[
+            {"name": "market_reached", "at": "2026-04-02T11:00:02"},
+            {"name": "dragon_tiger_reached", "at": "2026-04-02T11:00:03"},
+        ],
+    )
+    result.save(run_path)
+
+    verification = verify_run(run_path)
+    assert verification.flags["ask_human"] is True
+    assert verification.flags["safe_to_claim_stable_capture"] is False
 
 
 def test_render_verification_summary():
     summary = render_verification_summary(
         verify_run("missing.json")
     )
-    assert "状态: missing" in summary
+    assert "Status: missing" in summary
