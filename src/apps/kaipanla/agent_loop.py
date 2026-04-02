@@ -93,12 +93,28 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
     judgement_bundle: JudgementBundle = judge_exploration(result)
     primary = judgement_bundle.primary
     judgement_dict = judgement_bundle.to_dict()
+    all_signals: set[str] = set()
+    for item in judgement_bundle.all:
+        all_signals.update(item.matched_signals or [])
+    has_bottom_anchor = "bottom_nav龙虎榜" in all_signals
+    has_top_anchor = "top_title龙虎榜" in all_signals
 
     if result.evidence_status == "evidence_insufficient":
         return LoopDecision(
             decision="ask_human",
             reason="当前证据不足，继续探索容易变成碰运气",
             user_message="这轮拿到的证据太弱，继续下去更像碰运气。你是要严格确认龙虎榜主块，还是先接受相关候选证据？",
+            judgement=judgement_dict,
+            judgement_source=primary.source,
+            confidence=primary.confidence,
+            missing_capability=primary.missing_capability,
+        )
+
+    if primary.label == "dragon_tiger_page_reached":
+        return LoopDecision(
+            decision="stop",
+            reason="已验证进入龙虎榜页面，当前可停止并对外返回页面级结果",
+            user_message=primary.user_summary or "已成功进入龙虎榜页面，并拿到页面级榜单数据。",
             judgement=judgement_dict,
             judgement_source=primary.source,
             confidence=primary.confidence,
@@ -116,7 +132,24 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
             missing_capability=primary.missing_capability,
         )
 
-    if primary.label in {"institution_data_candidate", "dragon_tiger_related_surface", "home_feed_dominant"} and ui_changed and raw_record_count > 0 and candidate_count > max(0, noise_count):
+    if primary.label in {"dragon_tiger_related_surface", "home_feed_dominant"} and (not has_bottom_anchor or not has_top_anchor):
+        return LoopDecision(
+            decision="continue",
+            reason="当前仍缺少龙虎榜顶部标题/底部锚点中的至少一个，先做一轮最小补充取证来确认页面是否真正切换。",
+            next_round_index=current_round + 1,
+            next_navigation_hint="优先确认底部龙虎榜入口是否处于激活态，并验证顶部是否出现龙虎榜标题",
+            next_action_plan=[
+                {"action": "sleep", "seconds": 2},
+                {"action": "tap_text", "target": "龙虎榜"},
+                {"action": "sleep", "seconds": 2},
+            ],
+            judgement=judgement_dict,
+            judgement_source=primary.source,
+            confidence=primary.confidence,
+            missing_capability=primary.missing_capability,
+        )
+
+    if primary.label in {"institution_data_candidate", "broker_data_candidate", "dragon_tiger_data_candidate", "dragon_tiger_related_surface", "home_feed_dominant"} and ui_changed and raw_record_count > 0 and candidate_count > max(0, noise_count):
         return LoopDecision(
             decision="continue",
             reason=f"当前代码级判定结果为 {primary.label}，且本轮存在一定增信，可以继续一轮最小动作缩小不确定性",

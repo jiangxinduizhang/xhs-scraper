@@ -59,6 +59,19 @@ BROKER_HINTS = {
     "席位",
 }
 
+BOTTOM_NAV_HINTS = {
+    "首页&#10;Home",
+    "行情&#10;Markets",
+    "自选股&#10;Portfolio",
+    "龙虎榜&#10;Charts",
+    "推荐&#10;Recommend",
+}
+
+TOP_TITLE_HINTS = {
+    "龙虎榜",
+    "实时龙虎榜",
+}
+
 
 @dataclass(slots=True)
 class Judgement:
@@ -108,6 +121,18 @@ def _count_hits(texts: list[str], needles: set[str]) -> int:
     return len(_contains_any(texts, needles))
 
 
+def _has_bottom_nav_anchor(texts: list[str]) -> bool:
+    return "龙虎榜&#10;Charts" in "\n".join(texts)
+
+
+def _has_top_title_anchor(texts: list[str]) -> bool:
+    joined = "\n".join(texts)
+    home_hits = _contains_any(texts, HOME_FEED_HINTS)
+    if home_hits:
+        return False
+    return "龙虎榜" in joined and ("首页&#10;Home" not in joined)
+
+
 def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     texts = _collect_visible_texts(result)
     evidence = result.evidence or {}
@@ -119,6 +144,17 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     key_names = {str(item.get("name", "")) for item in candidates if isinstance(item, dict)}
 
     judgements: list[Judgement] = []
+
+    bottom_nav_anchor = _has_bottom_nav_anchor(texts)
+    top_title_anchor = _has_top_title_anchor(texts)
+    anchor_signals = [
+        signal
+        for signal, ok in (
+            ("bottom_nav龙虎榜", bottom_nav_anchor),
+            ("top_title龙虎榜", top_title_anchor),
+        )
+        if ok
+    ]
 
     home_hits = _contains_any(texts, HOME_FEED_HINTS)
     if home_hits and raw_record_count > 0:
@@ -135,14 +171,14 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
 
     dragon_hits = _contains_any(texts, DRAGON_TIGER_PAGE_HINTS)
     dragon_key_hits = sorted([key for key in observed_keys if "dragon" in key.lower() or "tiger" in key.lower() or "longhu" in key.lower()])
-    if dragon_hits or dragon_key_hits:
+    if dragon_hits or dragon_key_hits or anchor_signals:
         judgements.append(
             Judgement(
                 source="code_judger",
                 label="dragon_tiger_related_surface",
                 confidence="medium",
-                reason="证据里出现了龙虎榜相关文本或结构线索，但这只能说明接近目标区域，不能单独证明已命中核心数据块。",
-                matched_signals=(dragon_hits + dragon_key_hits)[:6],
+                reason="证据里出现了龙虎榜相关文本、结构线索或页面锚点，但这只能说明接近目标区域，不能单独证明已命中核心数据块。",
+                matched_signals=(anchor_signals + dragon_hits + dragon_key_hits)[:8],
                 user_summary="已经出现龙虎榜相关线索，但还不能只凭这些线索宣称抓到目标主块。",
             )
         )
@@ -150,14 +186,14 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     dragon_data_hits = _contains_any(texts, DRAGON_TIGER_DATA_HINTS)
     dragon_text_hit_count = _count_hits(texts, DRAGON_TIGER_PAGE_HINTS | DRAGON_TIGER_DATA_HINTS)
     stock_key_hits = sorted([key for key in observed_keys if key in {"code", "name", "buy", "sell", "net", "amount"}])
-    if dragon_hits and dragon_data_hits and dragon_text_hit_count >= 3 and not home_hits:
+    if bottom_nav_anchor and top_title_anchor and dragon_hits and dragon_data_hits and dragon_text_hit_count >= 3 and not home_hits:
         judgements.append(
             Judgement(
                 source="code_judger",
                 label="dragon_tiger_data_candidate",
                 confidence="medium",
-                reason="当前 UI 同时出现龙虎榜页面词和龙虎榜数据字段词，且首页主流噪音不占主导，因此可以视为龙虎榜数据候选。",
-                matched_signals=(dragon_hits + dragon_data_hits + stock_key_hits)[:8],
+                reason="当前 UI 同时满足底部龙虎榜锚点、顶部标题锚点，以及龙虎榜数据字段词，且首页主流噪音不占主导，因此可以视为龙虎榜数据候选。",
+                matched_signals=(anchor_signals + dragon_hits + dragon_data_hits + stock_key_hits)[:10],
                 user_summary="当前 UI 已出现更像龙虎榜数据主块的线索，但仍建议再做一轮核实后再对外确认。",
             )
         )
@@ -173,6 +209,19 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
                 reason="可见文本已出现机构/席位相关词，并且与龙虎榜页面/数据词同时出现，说明证据开始接近机构数据目标。",
                 matched_signals=(institution_hits + institution_key_hits + dragon_hits)[:8],
                 user_summary="已经看到一些更像龙虎榜机构/席位数据的线索，但还不能直接当成已稳定抓到。",
+            )
+        )
+
+    page_entry_hits = _contains_any(texts, {"今日上榜数", "股票", "机构", "营业部", "股票名称"})
+    if bottom_nav_anchor and page_entry_hits and any(text.isdigit() and len(text) == 6 for text in texts):
+        judgements.append(
+            Judgement(
+                source="code_judger",
+                label="dragon_tiger_page_reached",
+                confidence="high",
+                reason="已验证点击后 UI 从首页/推荐流切换为龙虎榜列表页，出现‘今日上榜数’、‘股票/机构/营业部’分栏、股票代码与股票名称等页面级线索。",
+                matched_signals=(anchor_signals + page_entry_hits)[:10],
+                user_summary="已成功进入龙虎榜页面，并拿到页面级榜单数据。",
             )
         )
 
@@ -203,6 +252,7 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
         )
 
     priority = {
+        "dragon_tiger_page_reached": 7,
         "institution_data_candidate": 6,
         "broker_data_candidate": 5,
         "dragon_tiger_data_candidate": 4,

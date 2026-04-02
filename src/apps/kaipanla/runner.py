@@ -151,10 +151,12 @@ class KaipanlaRunner:
                         except Exception:
                             break
                 elif action == "tap_text":
-                    found = self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0)))
+                    tap_target = str(step.get("text") or step.get("target") or "")
+                    found = self._click_text(d, tap_target, timeout=float(step.get("timeout", 2.0)))
                     executed = bool(found)
                 elif action == "tap_text_or_fallback":
-                    found = self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0)))
+                    tap_target = str(step.get("text") or step.get("target") or "")
+                    found = self._click_text(d, tap_target, timeout=float(step.get("timeout", 2.0)))
                     if found:
                         executed = True
                     else:
@@ -305,14 +307,43 @@ class KaipanlaRunner:
 
     @staticmethod
     def _click_text(d, text: str, timeout: float = 2.0) -> bool:
-        try:
-            node = d(text=text)
-            if node.exists(timeout=timeout):
+        target = (text or "").strip()
+        if not target:
+            return False
+
+        selectors = [
+            {"text": target},
+            {"textContains": target},
+            {"description": target},
+            {"descriptionContains": target},
+        ]
+        if target == "龙虎榜":
+            selectors.extend([
+                {"text": "龙虎榜\nCharts"},
+                {"textContains": "龙虎榜\nCharts"},
+                {"textContains": "实时龙虎榜"},
+            ])
+
+        for selector in selectors:
+            try:
+                node = d(**selector)
+                if not node.exists(timeout=timeout):
+                    continue
+                current = node
+                for _ in range(4):
+                    info = current.info
+                    if info.get("clickable"):
+                        current.click()
+                        time.sleep(0.8)
+                        return True
+                    current = current.parent()
+                    if current is None:
+                        break
                 node.click()
                 time.sleep(0.8)
                 return True
-        except Exception:
-            return False
+            except Exception:
+                continue
         return False
 
     @staticmethod
