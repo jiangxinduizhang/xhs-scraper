@@ -1,181 +1,161 @@
-# 开盘啦桥接器第一轮实施清单
+# 开盘啦 bridge 第一轮实施清单（对齐合并版总方案）
 
 > 本清单服从 `Docs/kaipanla-bridge-architecture.md`。
-> 第一轮目标不是让 bridge 更会判断，而是让它产出更完整、可供 AI 判读的事实证据包。
+> 第一轮目标不是让 bridge 更聪明，而是补齐形成闭环所需的**最小执行与证据能力**。
 
 ---
 
-## 1. 第一轮目标
+## 0. 第一轮的边界
 
-第一轮只做两件事：
+第一轮只解决：
 
-1. **定义并落地 exploration evidence bundle v2**
-2. **定义并落地 AI 消费 evidence bundle 的最小控制协议**
+1. bridge 是否能支持 AI 做多轮 exploration loop
+2. evidence bundle 是否足够支撑 AI 判断继续/停止/ask human
+3. exploration verify/report 是否去结论化
 
-第一轮不做：
-- promote
-- 页面专属语义识别增强
-- 更强 registered 页面判断
-- 业务摘要优化
-- 通过规则堆叠让 bridge 看起来“更懂页面”
+第一轮不解决：
+- 页面语义识别增强
+- 自动 promote
+- 页面业务摘要优化
+- 大量新页面扩展
+- bridge 自己做策略建议
 
 ---
 
-## 2. 必须实现
+## 1. 按对象拆分的实施项
 
-### 2.1 exploration evidence bundle v2
+## 1.1 bridge / runtime：必须实现
 
-exploration 结果必须至少包含以下五组事实：
+### P0-1. exploration round schema
+bridge 必须支持 round 化执行，而不只是一次性 preset 跑完退出。
 
-#### A. 动作事实
-- 本轮动作列表
-- 每步动作类型
-- 每步动作时间点
-- 点击目标
-- 点击是否找到文本/元素
-- 是否执行点击/等待/滑动
+最小需要：
+- `round_index`
+- `max_rounds`
+- `action_plan`
+- `capture_options`
+- `session_id`（如已支持会话）
 
-#### B. UI 事实
-- 点击前截图路径（如可用）
-- 点击后截图路径（如可用）
-- 点击前 UI dump 路径（如可用）
-- 点击后 UI dump 路径（如可用）
-- 是否检测到 UI 变化
-- 可见文本变化摘要（最小可为空）
+### P0-2. step-level action execution
+bridge 必须支持这些最小动作：
+- `tap_text`
+- `tap_text_or_fallback`
+- `tap_coord`
+- `wait`
+- `back`
+- `swipe`
+- `screenshot`
+- `dump_ui`
+- `visible_text`
+- `capture_request_window`
 
-#### C. 请求事实
-- 点击前时间窗请求计数
-- 点击后时间窗请求计数
-- 点击后新增请求列表
-- 请求 path 摘要
-- 请求 keys/shape 摘要
-- 哪些请求只出现在点击后
+### P0-3. before/after evidence
+bridge 必须为关键动作输出：
+- screenshot_before / after
+- ui_dump_before / after
+- visible_text_before / after
+- request pre_window / post_window
+- new_paths / new_keys / new_records
+- first_seen_after_action_ms
 
-#### D. 候选结构事实
-- candidate_structures
-- noise_structures
-- 每个结构的 key / kind / shape / repetition
-- 每个结构首次出现相对点击事件的时序信息
-- 候选结构与噪声结构的事实性理由
+### P0-4. exploration evidence bundle v2
+至少包含：
+- `action_facts`
+- `ui_facts`
+- `request_facts`
+- `structure_facts`
+- `artifact_facts`
+- `round_index`
+- `max_rounds`
+- `evidence_status`
 
-#### E. 轮次元信息
-- round_index
-- max_rounds
-- target_hint
-- evidence_status
-
-### 2.2 exploration verify 新口径
-
-exploration verify 第一轮只允许输出证据完备度，不允许输出页面成功结论。
-
-允许的口径：
+### P0-5. exploration verify/report 新口径
+只允许输出：
 - `evidence_complete`
 - `evidence_partial`
 - `evidence_insufficient`
 
-不允许的口径：
+禁止输出：
 - `verified`
-- `success`
-- `reached`
-- `stable_capture`
+- `page_success`
+- `main_block_found`
 - `ready_to_promote`
-- 页面已抓取完成
-- 命中关键字段
 
-### 2.3 exploration report 新口径
+### P1：应该实现
+- 动作失败原因结构化
+- UI 差分摘要
+- 请求噪声基线
+- 多动作时间窗差分
 
-exploration report 必须是“探测报告”，至少包含：
-- 本轮做了什么
-- 本轮新增了什么证据
-- 当前主要候选结构
-- 当前主要噪声结构
-- 当前主要不确定性
-- 下一轮建议动作（如果有）
-- 是否建议 ask human（如果有）
-
-禁止写成：
-- 页面已抓取完成
-- 已进入目标页主块
-- 已稳定命中目标数据
-
-### 2.4 AI 控制协议 v1
-
-第一轮必须定义一个最小 AI 控制协议，用于驱动下一轮 exploration。
-
-当前协议应由 AI 持有，不应让 runtime 自己生成业务控制建议。
-
-AI 控制协议必须能表达：
-- 为什么继续/停止
-- 下一轮最小动作是什么
-- 当前不确定性的核心点是什么
+### P2：后续实现
+- 持久 session 恢复
+- 更强 UI 证据能力
+- recipe/promote 挂载接口
 
 ---
 
-## 3. 禁止实现
+## 1.2 AI / OpenClaw：必须承担
 
-第一轮明确禁止以下实现：
+这些不是 bridge 任务，必须由 AI 承担：
 
-### 3.1 禁止把识别责任塞进 bridge
-- bridge 直接判断“是否进入目标主块”
-- bridge 直接判断“这就是龙虎榜数据”
-- bridge 直接输出 promote/reached/main_block_found 一类强语义状态
+### P0
+- 定义每轮探索目标
+- 判断证据是否足够
+- 判断是否继续下一轮
+- 判断是否 ask human
+- 判断是否可以对外宣告成功
+- 判断是否值得沉淀 reusable recipe
 
-### 3.2 禁止靠页面特化规则止血
-- 为 dragon_tiger 单独堆越来越厚的业务规则
-- 用 generic key -> 页面成功 的方式继续糊逻辑
-- 用更复杂 detector 代替 AI 判读职责
+### P1
+- 比较多轮证据的改善情况
+- 解释冲突证据
+- 在 registered 失效时回退到 exploration
 
-### 3.3 禁止 scope 膨胀
-- 不接更多新页面
-- 不做自动 promote
-- 不做厚重 DSL
-- 不做开放式自然语言理解进入 runtime
-- 不重写整个 registered 流程
+### 禁止
+- 把 preset 名称当成功证据
+- 把 `page_flow_complete` 当页面语义成功
+- 把 key 命中直接解释为目标主块
 
 ---
 
-## 4. 输入/输出 schema 草案
+## 1.3 SKILL：必须补充
 
-## 4.1 ExplorationTaskV2（草案）
+SKILL 必须写成“AI 的使用逻辑手册”，而不是 bridge 能力广告。
+
+### 必须补：
+- 什么时候走 registered，什么时候走 exploration
+- exploration loop 如何做
+- 什么时候继续
+- 什么时候停
+- 什么时候 ask human
+- 什么时候可以告诉 human 成功
+- 什么时候可以沉淀 reusable recipe
+- 什么时候可以 promote 成 registered
+
+### 必须明确：
+- bridge 输出的是事实，不是最终业务结论
+- AI 必须自己承担成功/失败/不确定性的解释
+
+---
+
+## 2. ExplorationEvidenceBundleV2 草案
 
 ```json
 {
   "mode": "exploration",
-  "target_hint": "龙虎榜",
+  "session_id": "optional",
   "round_index": 1,
-  "max_rounds": 2,
-  "navigation_hint": {
-    "entry_tab": "行情",
-    "entry_text": "龙虎榜"
-  },
-  "capture_options": {
-    "screenshot_before_after": true,
-    "ui_dump_before_after": true,
-    "focus_post_tap_window": true
-  }
-}
-```
-
-说明：
-- `navigation_hint` 允许存在，但不等于页面语义已确认。
-- `capture_options` 是证据采集选项，不是识别规则。
-
-## 4.2 ExplorationEvidenceBundleV2（草案）
-
-```json
-{
-  "mode": "exploration",
-  "round_index": 1,
-  "max_rounds": 2,
+  "max_rounds": 3,
   "target_hint": "龙虎榜",
   "action_facts": {
     "steps": [
       {
         "type": "tap_text",
         "target": "龙虎榜",
-        "timestamp": "2026-04-02T13:00:00+08:00",
+        "timestamp": "2026-04-02T16:30:00+08:00",
         "found": true,
-        "executed": true
+        "executed": true,
+        "error": ""
       }
     ]
   },
@@ -184,126 +164,78 @@ AI 控制协议必须能表达：
     "screenshot_after": "...",
     "ui_dump_before": "...",
     "ui_dump_after": "...",
-    "ui_changed": true,
-    "visible_text_diff": []
+    "visible_text_before": [],
+    "visible_text_after": [],
+    "visible_text_diff": [],
+    "ui_changed": true
   },
   "request_facts": {
     "pre_window_count": 2,
     "post_window_count": 5,
+    "new_paths": ["/w1/api/index.php"],
+    "new_keys": ["List", "Topic"],
     "new_requests": [
       {
         "path": "/w1/api/index.php",
         "keys": ["List", "Topic"],
-        "kind": "dict"
-      }
-    ],
-    "post_navigation_only": []
-  },
-  "structure_facts": {
-    "candidate_structures": [
-      {
-        "name": "candidate_1",
-        "keys": ["List", "Topic"],
-        "kind": "dict",
-        "repetition": 2,
-        "first_seen_after_tap_ms": 320
-      }
-    ],
-    "noise_structures": [
-      {
-        "name": "noise_1",
-        "keys": ["Ad_5", "IndexAd"],
-        "kind": "dict",
-        "reason": "ad_or_public_block"
+        "first_seen_after_action_ms": 320
       }
     ]
   },
-  "evidence_status": "evidence_complete",
-  "next_action_suggestion": {
-    "action": "focus_post_tap_window",
-    "reason": "点击后新增请求仍混有公共块，需收紧时间窗"
-  }
+  "structure_facts": {
+    "observed_keys": ["List", "Topic"],
+    "candidate_structures": [],
+    "noise_structures": []
+  },
+  "artifact_facts": {
+    "raw_paths": ["..."],
+    "report_path": "...",
+    "db_path": "..."
+  },
+  "evidence_status": "evidence_complete"
 }
 ```
 
 说明：
-- `candidate_structures` / `noise_structures` 是事实性归类，不是业务最终判定。
-- `next_action_suggestion` 只能是“下一轮探测建议”，不是“页面已经成功”。
+- 允许有 `candidate_structures`，但它只能是事实归类，不是业务结论。
+- 不允许出现“龙虎榜已确认”这种 bridge 结论字段。
 
 ---
 
-## 5. 第一轮代码改动范围
+## 3. 第一轮验收
 
-第一轮允许改动的模块：
-- `src/apps/kaipanla/exploration.py`
-- `src/apps/kaipanla/task.py`
-- `src/apps/kaipanla/verify.py`
-- `src/apps/kaipanla/report.py`
-- `scripts/kpl_tool.py`
-- 对应 unit tests
+## 3.1 bridge/runtime 验收
+必须能看到：
+- 至少一轮真实 exploration 输出 before/after 证据
+- request delta 是动作相关的，不是全量模糊回读
+- verify/report 已改为 evidence 口径
 
-第一轮原则：
-- 优先改 exploration 路径
-- 尽量少碰 registered 逻辑
-- 如需兼容旧字段，应明确标注 deprecated / compatibility only
+## 3.2 AI/Skill 验收
+必须能说明：
+- 为什么继续下一轮
+- 为什么停止
+- 为什么 ask human
+- 为什么当前还不能宣告成功
 
----
-
-## 6. 验收标准
-
-第一轮完成必须满足：
-
-### 6.1 文档验收
-- 架构文档与本实施清单一致
-- 不存在明显鼓励 bridge 承担识别责任的条目
-
-### 6.2 单测验收
-至少覆盖：
-- evidence bundle 必填字段
-- exploration verify 新口径
-- exploration report 新口径
-- control_directive 能正确透传
-- candidate/noise structures 能结构化输出
-
-### 6.3 真机/真实 run 验收
-至少完成 1 个真实 exploration run，并能看到：
-- 动作事实
-- UI 事实（若环境支持）
-- 请求事实
-- 候选/噪声结构事实
-- 明确的 evidence_status
-
-### 6.4 边界验收
+## 3.3 边界验收
 必须确认：
-- 输出中没有“页面已成功”“主块已找到”这类 bridge 结论
-- 没有把 AI 识别职责偷塞回 runtime
+- 没有把判断责任塞回 bridge
+- 没有把 skill 写成 bridge 能力幻想说明书
+- 没有把 AI 的弱推测包装成成功
 
 ---
 
-## 7. 停止条件
+## 4. 第一轮完成即停
 
-第一轮达到以下条件即停止，不继续扩 scope：
-- evidence bundle v2 能稳定产出
-- control protocol v1 能跑通
-- exploration verify/report 已改口径
-- 至少一轮真实 run 可复核
-- 单测通过
+第一轮达到以下条件即停止，不扩 scope：
+- round 化 exploration 可以跑
+- evidence bundle v2 可消费
+- exploration verify/report 改口径
+- SKILL 已明确 loop / stop / ask-human / success / reuse 规则
+- 至少一个真实 run 可复核
 
-达到后，下一步才讨论第二轮，不允许继续顺手补：
-- promote
+达到后再进入第二轮，不顺手补：
+- 自动 promote
 - 更多页面特化
-- 更强页面识别
-- registered 大改
-
----
-
-## 8. 提交前自检
-
-每次提交前必须回答：
-
-1. 这次改动是在补“事实证据”，还是又在补“业务判断”？
-2. 输出字段是事实型，还是结论型？
-3. 这次如果只做一半，是否仍是可验证增量？
-4. 有没有被现有 reached / verified / ready 一类旧结构带偏？
-
-只要第 1 或第 2 问答案不稳，就先停。
+- bridge 业务识别增强
+- 注册页体系大改

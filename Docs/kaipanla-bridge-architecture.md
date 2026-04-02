@@ -1,473 +1,746 @@
-# 开盘啦桥接器 × AI 协同实现方案（重整版）
+# 开盘啦 bridge × AI × SKILL 协同总方案（合并修订版）
 
-## 0. 目标
-
-我们要实现的不是“桥接器更聪明”，而是：
-
-- **桥接器负责复杂执行与证据采集组织**
-- **AI 负责识别、判断、控制下一步动作**
-- **两者形成明确的探索闭环，而不是互相偷懒**
-
-这意味着：
-- 不能把 bridge 做成半个 AI
-- 也不能让 AI 把 bridge 的弱信号直接转述成成功
-- 不要被既有代码中的结论型字段、状态名、历史结构带偏
+> 本文档是当前唯一主方案。
+> 目标：在**严格边界**下，把“开盘啦任务探索 → 证据判断 → 继续执行 → ask human / 宣告成功 / 沉淀复用”的完整闭环说清楚。
+>
+> 三层对象必须严格区分：
+>
+> - **AI / OpenClaw**：理解、识别、判断、控制、对外解释
+> - **SKILL**：AI 使用 bridge 时必须遵循的操作手册与停机规则
+> - **bridge / runtime**：执行动作、采集证据、落盘、回读
 
 ---
 
-## 1. 总体架构原则
+## 0. 先给最终结论
 
-### 1.1 Bridge 的职责
+当前问题的根不是“某次是否点到了龙虎榜”，而是：
 
-bridge 只负责三类事：
+**系统是否有能力形成任务闭环。**
 
-#### A. 执行动作
-例如：
-- 打开 app
-- 导航到某 tab / 某入口
-- 点击目标文案/区域
-- 截图
-- 导出 UI 树
-- 抓包
-- 记录动作前后时间点
-- 再试一次 / 换一个入口 / 等待 / 滑动
+所谓闭环，指的是：
 
-#### B. 采集并组织证据
-bridge 输出的是**事实证据包**，不是识别结论。
-例如：
-- 点击前后 UI 是否变化
-- 点击前后出现了哪些新请求
-- 哪些请求只出现在点击后时间窗
-- 哪些结构是候选块
-- 哪些结构更像噪声/公共块
-- 证据之间的时序关系
+1. AI 明确任务目标
+2. AI 让 bridge 执行动作并收集证据
+3. bridge 返回事实证据包
+4. AI 判断证据是否足够
+5. 若不足，AI 决定下一轮动作
+6. 重复，直到：
+   - 成功
+   - ask human
+   - 明确停止
+7. 若成功路径可复现，再沉淀为 registered/可复用经验
 
-#### C. 提供受控执行接口
-bridge 应该像一个“受控探测器”：
-- 你让它做什么，它就做什么
-- 它可以返回复杂证据
-- 但它不替 AI 下业务结论
+当前已有：
+- 初步边界定义
+- 单次执行 + 落盘 + 回读
+- exploration evidence bundle 雏形
 
-### 1.2 AI 的职责
-
-AI 负责：
-
-#### A. 识别
-根据 bridge 的证据判断：
-- 这轮是否真的更接近目标页
-- 当前抓到的是公共块、候选块，还是更像目标主块
-- 当前证据强弱如何
-
-#### B. 控制
-决定下一步动作：
-- 继续点哪里
-- 是否要截图/UI dump
-- 是否只取点击后时间窗
-- 是否需要换一种操作路径
-- 是否该 ask human
-
-#### C. 对外结论
-只有 AI 可以输出这类结论：
-- 这轮抓偏了
-- 当前只有候选证据
-- 可以继续探索
-- 需要人工澄清
-- 值得 promote / 不值得 promote
+当前缺少：
+- 真正可持续的多轮控制闭环
+- step-level 证据差分
+- UI 证据
+- AI 可控的继续/停止协议
+- ask-human / success / reuse 的明确规则
 
 ---
 
-## 2. 设计原则：事实输出 vs 结论输出
+## 1. 三层职责边界（必须写死）
 
-### 2.1 bridge 只能输出“事实型字段”
+## 1.1 AI / OpenClaw 负责什么
 
-例如允许：
-- `tap_attempted`
-- `tap_target`
+AI 负责所有“理解 / 识别 / 判断 / 决策 / 对外解释”。
+
+### AI 负责：
+- 理解用户要完成的真实任务
+- 判断当前是 registered 还是 exploration
+- 决定本轮目标是什么
+- 读 evidence bundle，并判断：
+  - 当前是否更接近目标
+  - 当前证据是否足够
+  - 当前是否需要继续探索
+  - 当前是否需要 ask human
+  - 当前是否可以告诉 human “探索成功”
+- 决定下一轮动作
+- 决定是否把一次探索经验沉淀为 registered / reusable recipe
+- 对外解释结果、风险和不确定性
+
+### AI 明确不负责：
+- 直接替代 bridge 做设备动作执行
+- 把“没有证据的猜测”包装成成功结论
+- 用自然语言要求 bridge 自己理解开放式意图并自主探索
+
+---
+
+## 1.2 SKILL 负责什么
+
+SKILL 不是 bridge，也不是 AI 本体。
+
+SKILL 是：
+
+> **AI 在使用 bridge 时必须遵循的操作逻辑手册。**
+
+### SKILL 负责：
+- 规定 AI 如何选择 `capture / explore / verify / report / latest / status`
+- 规定 AI 在 exploration 中如何 loop
+- 规定什么情况下应继续、停止、ask human
+- 规定什么情况下允许对 human 宣告“探索成功”
+- 规定什么情况下可以把探索经验沉淀为 registered/reusable recipe
+- 规定哪些结论绝不能由 bridge 输出
+- 规定哪些字段只能被理解为“事实”，不能被理解为“成功”
+
+### SKILL 明确不负责：
+- 直接替代 runtime 提供执行能力
+- 替 bridge 凭空发明不存在的接口
+- 替 AI 做实际判断
+
+一句话：
+
+**SKILL 负责“AI 应该怎么用”，不负责“系统底层能力从哪里来”。**
+
+---
+
+## 1.3 bridge / runtime 负责什么
+
+bridge 是执行器与证据采集器，不是判断器。
+
+### bridge 负责：
+- 启 app / 连设备 / 配代理 / 清理环境
+- 点击 / 滑动 / 返回 / 等待 / 截图 / dump UI / 抓包
+- 记录每步动作的时间点和执行结果
+- 记录动作前后请求与 UI 事实
+- 生成 run/task/report/raw/db/evidence bundle
+- 回读 latest/status/report/verify
+- 在 exploration 或 registered 模式下，按照明确参数执行
+
+### bridge 明确不负责：
+- 判断“是否进入目标主块”
+- 判断“这是不是龙虎榜核心数据”
+- 判断“是否值得继续探索”
+- 判断“是否 ask human”
+- 判断“是否可以告诉用户成功”
+- 判断“是否值得 promote/reuse”
+- 开放式自然语言理解
+
+一句话：
+
+**bridge 只做手和相机，不做脑子。**
+
+---
+
+## 2. 严格区分两类输出：事实 vs 结论
+
+## 2.1 bridge 只能输出事实型字段
+
+允许：
+- `action_facts`
+- `ui_facts`
+- `request_facts`
+- `structure_facts`
+- `artifact_facts`
+- `raw_record_count`
+- `observed_paths`
+- `observed_keys`
+- `round_index`
+- `max_rounds`
 - `tap_found`
-- `tap_timestamp`
-- `screenshot_before`
-- `screenshot_after`
-- `ui_dump_before`
-- `ui_dump_after`
+- `tap_executed`
 - `ui_changed`
-- `requests_before`
-- `requests_after`
-- `new_request_count`
+- `new_requests`
 - `candidate_structures`
 - `noise_structures`
-- `time_window_records`
+- `evidence_status`
 
-这些都是**客观记录**。
+这些都是事实、计数、结构、时序。
 
-### 2.2 bridge 不应输出“结论型字段”
+## 2.2 bridge 不应输出结论型字段
 
-尤其 exploration 场景里，不应让 bridge 直接输出：
-- `dragon_tiger_reached`
-- `page_flow_complete`
+禁止把这些当 bridge 当前能力口径：
 - `page_verified`
-- `stable_capture`
 - `main_block_found`
+- `dragon_tiger_reached`
+- `stable_capture`
 - `ready_to_promote`
+- `exploration_success`
+- `page_grabbed`
+- `目标页已确认`
+- `核心数据已抓到`
 
-这些都已经带有判断和归因意味。
-
-如果必须保留类似信息，也只能改成**弱表述的事实标签**，而不是结论。
+如果历史兼容必须保留类似字段，也只能：
+- 标记 deprecated
+- 明确说明“只是旧兼容字段，不可当业务结论”
 
 ---
 
-## 3. 能力分层
+## 3. 两种工作模式
 
-### 3.1 Registered Capture
+## 3.1 registered
 
-适用于已经证明稳定的页面。
+适用于：
+- 已验证稳定的页面
+- 已有可复现导航路径
+- 已有可复现证据链
+- 已沉淀为固定任务模板
 
-registered 层才允许存在更强的流程封装，但前提是：
-- 这个页面已经经过足够 exploration
-- AI 已确认它值得沉淀
-- 导航和证据链可复现
+### registered 的特点
+- 可以有固定 preset / task spec
+- 可以有固定 verify/report
+- 可以复用既定导航动作
+- 可以对产物完整性做较强校验
 
-这一层可以有：
-- 稳定任务模板
-- 稳定证据抽取
-- 稳定 verify
-- 稳定 report
+### 但 registered 仍然不能意味着：
+- bridge 可以自己做业务结论
+- bridge 可以自己判断“页面语义已确认”
 
-但就算是 registered，bridge 也仍应尽量输出事实证据，不应无限膨胀成业务判断器。
+---
 
-### 3.2 Exploration-first Capture
+## 3.2 exploration
 
 适用于：
 - 新页面
-- 改版页面
-- 入口不稳定
-- 目标不完全明确
-- 需要 AI 边看边指挥
+- 页面改版
+- 入口位置不稳
+- 目标还未摸清
+- 需要 AI 多轮指挥
 
-exploration 的本质不是“弱版 registered”，而是：
+### exploration 的本质
+
+不是“弱版 registered”，而是：
 
 > **AI 驱动的多轮证据探索协议**
 
-核心是：
-- bridge 跑动作
-- bridge 回证据
-- AI 判读
-- AI 决定下一轮
-- 到停点或 ask-human gate 为止
+流程是：
+- AI 发明确任务
+- bridge 执行并收集事实证据
+- AI 读证据
+- AI 判断是否继续
+- 继续则进入下一轮
+- 直到 ask human / success / stop
 
 ---
 
-## 4. Exploration 的最小闭环协议
+## 4. 最小闭环协议（必须落地）
 
-### 4.1 单轮 exploration 应输出什么
+## 4.1 一轮 exploration 的最小输入
 
-一轮 exploration 结束后，bridge 至少应回：
+一轮 exploration 输入必须是明确、执行导向的，不是开放式意图。
 
-#### A. 动作事实
-- 本轮做了哪些动作
-- 每步动作时间点
-- 是否成功找到点击目标
-- 是否执行了点击/滑动/等待
-
-#### B. UI 事实
-- 点击前截图
-- 点击后截图
-- 点击前 UI dump
-- 点击后 UI dump
-- 可见文本变化摘要
-- 是否发生明显 UI 变化
-
-#### C. 请求事实
-- 点击前时间窗请求数
-- 点击后时间窗请求数
-- 新出现请求列表
-- 新请求的 path / keys / shape 摘要
-- 哪些请求是重复稳定出现的
-
-#### D. 候选结构事实
-- 可能相关的结构块有哪些
-- 每个结构块的 key / shape / repetition
-- 每个结构块是在点击前还是点击后出现
-- 哪些更像公共块 / 广告 / 噪声
-
-#### E. 执行元信息
-- 本轮 target hint
-- 本轮输入指令
-- 本轮轮次
-- 是否已达最大轮数
-
-注意：
-这些都还是**事实包**，不是“龙虎榜主块已找到”。
-
-### 4.2 AI 在每轮之后做什么
-
-AI 读完事实包后，只做四类判断：
-
-#### 1. 本轮是否比上轮更接近目标
-例如：
-- UI 明显变化了
-- 点击后新增请求更多
-- 新请求更聚焦
-- 候选结构更集中
-
-#### 2. 当前最可能的解释是什么
-例如：
-- 仍停留在首页公共块
-- 可能进入了目标区域但没抓到主块
-- 已出现更像目标主块的候选结构
-- 当前证据冲突，无法判断
-
-#### 3. 下一轮最小动作是什么
-例如：
-- 再点一次龙虎榜入口
-- 改为点击不同位置
-- 点击后立即截图并抓 3 秒
-- 先不滑动
-- 只保留点击后请求
-
-#### 4. 是否要停止
-停止条件：
-- 证据不再改善
-- 已到轮数上限
-- 目标不清晰
-- 需要用户回答关键问题
-- 再继续会逼着 bridge 替 AI 做判断
-
----
-
-## 5. Ask-human gate
-
-### 5.1 ask-human 的作用
-
-ask-human 不是失败兜底，而是**边界保护机制**：
-
-当 AI 发现再跑下去只能靠猜时，就必须问人。
-
-### 5.2 应触发 ask-human 的情况
+至少应包含：
+- `target_hint`
+- `round_index`
+- `max_rounds`
+- `navigation_hint`（可选）
+- `capture_options`
+- 本轮动作列表 / 本轮最小动作目标
 
 例如：
-- 连续两轮都主要是首页公共块
-- UI 证据和请求证据互相冲突
-- 目标是“页面主块”还是“任意相关数据”不清楚
-- 再继续探索也不会明显增信
-- 下一步只能通过硬编码业务语义来推进
-
-### 5.3 ask-human 的输出
-
-AI 对外应该明确问：
-- 你要锁定的是页面主列表/主块，还是页面内任意相关数据？
-- 你要的是页面结构摸清，还是已经能稳定复用的 registered 抓取？
-- 你更在意导航到位，还是抓到相关请求即可？
-
-ask-human 应由 AI 发起，不是 bridge 自己决定业务问题。
-
----
-
-## 6. Verify 的重新定义
-
-### 6.1 registered 的 verify
-
-registered verify 只验证：
-- 执行动作是否完成
-- 产物是否存在
-- 证据链是否完整
-- 已定义事实条件是否满足
-
-registered verify 不等于“AI 语义理解正确”，但它可以验证 registered 所需的既定事实门槛。
-
-### 6.2 exploration 不应用 registered verify 那套成功语义
-
-exploration 阶段不应该把 verify 做成：
-- verified
-- success
-- reached
-
-更合适的是：
-- `evidence_complete`
-- `evidence_partial`
-- `evidence_insufficient`
-
-也就是只评价**证据包是否可供 AI 判读**，不评价“目标页是否真的成立”。
-
----
-
-## 7. Report 的重新定义
-
-### 7.1 registered report
-
-registered report 可以是结果导向的：
-- 抓到了什么
-- 主要字段
-- 结果摘要
-- 稳定产物路径
-
-但前提是它真的已经是 registered 页面。
-
-### 7.2 exploration report
-
-exploration report 不应该写成“页面抓取完成”。
-
-exploration report 只能写：
-- 做了什么动作
-- 产生了什么新证据
-- 目前最值得 AI 关注的候选结构是什么
-- 当前还存在什么不确定性
-- 下一轮建议做什么
-- 是否需要 ask human
-
-也就是：
-**exploration report 是“探测报告”，不是“结果报告”。**
-
----
-
-## 8. “龙虎榜”案例的落地目标
-
-这里按方案预期写，不顺着现有代码。
-
-### 8.1 第一阶段目标
-
-不是“让桥接器识别龙虎榜主块”，而是：
-
-> **让 bridge 能围绕“点击龙虎榜入口”收集完整的动作 / UI / 请求证据包**
-
-### 8.2 bridge 的最小能力
-
-bridge 应支持：
 - 进入行情 tab
-- 尝试点击“龙虎榜”入口
-- 记录点击前后截图
-- 记录点击前后 UI dump
-- 记录点击前后请求时间窗
-- 输出新增请求及候选结构摘要
+- 点击“龙虎榜”
+- 点击后等待 2 秒
+- 采集点击前后 screenshot / UI dump / request delta
 
-这就够了。
-
-### 8.3 AI 的判断目标
-
-AI 判断的不是“bridge 说 reached 没”；
-AI 判断的是：
-- 点击后 UI 有没有变化
-- 新请求是不是比点击前更集中
-- 候选结构是不是更像目标页相关
-- 当前仍是不是首页公共块主导
-- 是否值得继续试下一轮
-
-### 8.4 promote 条件
-
-不是 bridge 决定，也不是单轮 exploration 决定。
-
-promote 至少要满足：
-- 多轮 exploration 证据稳定
-- AI 多次复核认为进入路径和证据结构可复现
-- 候选主结构在不同 run 中稳定出现
-- 不再主要依赖人工解释“它大概像”
+### 谁负责定义？
+- **AI 负责决定要做什么**
+- **bridge 负责执行这个明确动作集**
+- **SKILL 负责约束 AI 不要一次塞太多混合目标**
 
 ---
 
-## 9. 最小实现路线图
+## 4.2 一轮 exploration 的最小输出
 
-### Phase 1：bridge 去结论化
-目标：
-- 把 exploration 输出从“判断型”改成“事实型”
+一轮结束后，bridge 至少要输出以下 5 组事实。
 
-做的事：
-- 重构 step / event 语义
-- exploration 输出增加动作 / UI / 请求证据
-- 删除 / 降级结论型字段
+### A. action_facts（bridge 负责生成）
+- 本轮动作列表
+- 每步动作类型
+- 每步动作时间点
+- 点击目标
+- 点击是否找到
+- 点击是否执行
+- 等待/滑动/返回是否执行
+- 是否出现异常/回退
 
-产出：
+### B. ui_facts（bridge 负责生成）
+- screenshot_before
+- screenshot_after
+- ui_dump_before
+- ui_dump_after
+- visible_text_before
+- visible_text_after
+- visible_text_diff
+- ui_changed
+
+### C. request_facts（bridge 负责生成）
+- pre_window_count
+- post_window_count
+- pre_window_paths
+- post_window_paths
+- new_requests
+- new_paths
+- new_keys
+- path_counts
+- 请求记录与动作时间点的对应关系
+
+### D. structure_facts（bridge 负责生成）
+- observed_keys
+- candidate_structures
+- noise_structures
+- key/shape/repetition
+- first_seen_after_action_ms
+- 该结构来自哪些请求
+
+### E. artifact/meta facts（bridge 负责生成）
+- raw_paths
+- report_path
+- db_path
+- round_index
+- max_rounds
+- evidence_status
+- task_id / run_id
+
+### 谁解释这些？
+- **只有 AI 负责解释这些事实意味着什么**
+
+---
+
+## 4.3 AI 每轮之后必须做的 4 类判断
+
+### 1. 当前是否更接近目标
+AI 判断：
+- UI 是否变化
+- 新请求是否集中在点击后
+- 是否出现新的结构块
+- 候选结构是否比前一轮更聚焦
+- 是否仍然主要是首页公共块/缓存块
+
+### 2. 当前最可能解释是什么
+例如：
+- 仍停留在公共行情数据
+- 可能切到目标页但主块未触发
+- 可能点错元素
+- UI 变化存在但请求无新证据
+- 请求变化明显但 UI 无法确认
+
+### 3. 下一轮最小动作是什么
+例如：
+- 再点一次目标 tab
+- 改点击不同位置/不同文案
+- 先不滑动
+- 增加停留时间
+- 增加 UI dump
+- 只聚焦动作后 3 秒窗口
+
+### 4. 是否应该停止
+停止原因只允许由 AI 给出：
+- 证据已足够
+- 到达最大轮数
+- 证据不再改善
+- 目标不清晰
+- 再继续只能靠猜
+- 需要 human 提供关键澄清
+
+---
+
+## 5. Loop 规则（SKILL 必须写清）
+
+## 5.1 exploration loop 的默认原则
+
+AI 使用 skill 时，默认应采用：
+
+1. 明确当前轮目标
+2. 只要求 bridge 做最小必要动作
+3. 回读 evidence bundle
+4. 判断证据是否改善
+5. 若改善且仍不足，则继续下一轮
+6. 若不改善或已到边界，则 ask human / stop
+
+### loop 原则
+- 一轮只解决一个核心不确定性
+- 不要一轮里混入太多动作
+- 每轮都要有“为什么继续”的理由
+- 没有清晰增信理由时，不要机械重跑
+
+---
+
+## 5.2 什么时候继续 loop
+
+由 AI 判断继续，仅当满足以下至少一类：
+- 新一轮有明确更小的验证问题
+- 上一轮证据比前一轮更接近目标
+- 可以通过一个额外动作显著增信
+- 当前冲突证据可以通过下一轮被澄清
+- 仍未到 max_rounds，且继续不是纯碰运气
+
+---
+
+## 5.3 什么时候停止 loop
+
+AI 应停止，而不是为了“多跑几轮”而继续。
+
+停止条件包括：
+- evidence 已足够支持对外结论
+- 连续两轮没有增信
+- 下一轮动作没有明确目的
+- 目标定义本身不清晰
+- 当前环境限制导致再跑无意义
+- 已到 max_rounds
+
+---
+
+## 6. Ask-human gate（只能由 AI 触发）
+
+ask human 是边界保护机制，不是失败借口。
+
+## 6.1 必须 ask human 的情况
+
+### A. 目标不清
+例如：
+- 用户要的是“页面主块”，还是“任意相关数据”
+- 用户要的是“能进去看见页面”，还是“能稳定复用抓数据”
+
+### B. 证据冲突
+例如：
+- UI 看起来切页了，但请求仍是公共块
+- 请求变了，但 UI 看不到明显变化
+- 两轮动作都拿到不同候选块，无法判断哪一个才是目标
+
+### C. 再继续只能靠猜
+例如：
+- 没有新的动作可做
+- 没有新的证据项可增加
+- 下一步只能靠 bridge 自己“理解页面语义”
+
+### D. 需要人工提供业务偏好
+例如：
+- 是否接受“相关数据即可”
+- 是否一定要锁定主列表主块
+- 是否允许先沉淀半稳定路径
+
+## 6.2 ask human 由谁发起
+- **AI 发起**
+- **SKILL 规定问法与触发规则**
+- **bridge 不发起业务 ask human**
+
+---
+
+## 7. 什么时候可以告诉 human“探索成功”
+
+这个判断只能由 AI 做，而且必须保守。
+
+## 7.1 可以宣告“探索成功”的最小条件
+
+至少满足：
+
+### 条件 1：导航证据成立
+- 有明确动作证据表明已执行目标路径
+- 若有 UI 证据，UI 与目标区域一致
+
+### 条件 2：请求/结构证据成立
+- 点击/动作后出现新的、与目标高度相关的请求或结构
+- 新证据不是首页公共块/广告块/缓存块的重复
+
+### 条件 3：证据链可解释
+- AI 能清楚说明：
+  - 做了什么
+  - 出现了什么新证据
+  - 为什么这些证据足以支持“目标已抓到/已进入”
+
+### 条件 4：不依赖“桥接器弱信号复述”
+不能仅凭：
+- preset 名叫 dragon_tiger
+- step 里记录了 tap_dragon_tiger_tab
+- report 写了采集龙虎榜页相关产物
+
+就宣告成功。
+
+## 7.2 允许的成功口径
+AI 可以说：
+- “已完成导航并收集到与目标高度一致的新请求证据”
+- “当前可以高置信度认为已抓到目标页面相关核心数据”
+- “这条探索路径已形成可复核闭环”
+
+但如果证据只到一半，只能说：
+- “动作已执行，但语义成功尚未确认”
+- “拿到候选证据，但还不足以宣告成功”
+
+---
+
+## 8. 经验沉淀 / 复用机制（非常重要）
+
+“复用经验”不是 bridge 自己决定的，而是 AI 在完成探索后做的沉淀。
+
+## 8.1 什么可以沉淀
+
+可以沉淀的不是“业务结论”，而是：
+- 导航 recipe
+- 点击顺序
+- 等待时长
+- 哪些步骤必须做
+- 哪些步骤不要做
+- 哪种动作后最容易触发目标请求
+- 哪些路径是稳定噪声
+- 哪些证据最有用
+
+例如：
+- 进入行情后先点底部龙虎榜 tab，不要先滑动
+- 点击后等待 2.5 秒再抓 post-window 请求
+- 首页公共 `Index/MsgTop/DaBanList` 应当视为默认噪声基线
+
+## 8.2 沉淀成什么形式
+
+分两层：
+
+### A. reusable recipe（AI/SKILL 层）
+适用于：
+- 还没达到 fully registered
+- 但已有可复用探索经验
+
+内容包括：
+- 推荐导航顺序
+- 推荐 capture_options
+- 典型噪声模式
+- 典型 ask-human 触发点
+
+### B. registered preset/page（bridge/runtime 层）
+适用于：
+- 多轮验证稳定
+- 路径可复现
+- 证据结构稳定
+- AI 认为值得固化
+
+此时才允许沉淀为：
+- 固定 page spec
+- 固定 verify/report
+- 固定 recipe
+
+## 8.3 谁决定沉淀
+- **AI 决定“是否值得沉淀”**
+- **SKILL 规定沉淀 checklist**
+- **bridge 只负责承载被沉淀后的执行模板**
+
+bridge 不得自己决定 promote。
+
+---
+
+## 9. 改造方案：按对象拆分，不混责任
+
+## 9.1 bridge / runtime 必须改造的内容
+
+这些是 bridge 真正该补的能力，不是 skill 文案可以替代的。
+
+### P0：必须有
+
+#### 1. session 化执行模型
+当前一次 run 完即退出，不足以支撑闭环。
+需要支持：
+- start_session
+- execute_round / execute_actions
+- collect_evidence
+- continue_session
+- finish_session
+
+#### 2. step-level action schema
+至少支持：
+- tap_text
+- tap_coord
+- tap_text_or_fallback
+- wait
+- back
+- swipe
+- screenshot
+- dump_ui
+- visible_text
+- capture_request_window
+
+#### 3. 动作前后差分证据
+必须能输出：
+- before/after screenshot
+- before/after UI dump
+- before/after visible text
+- pre/post request window
+- new paths / new keys / new records
+- first_seen_after_action_ms
+
+#### 4. exploration evidence bundle v2
+当前 evidence 太弱，必须提升为可驱动 AI loop 的 bundle。
+
+#### 5. verify/report 改口径
+exploration 只能输出：
+- evidence_complete
+- evidence_partial
+- evidence_insufficient
+
+禁止输出页面语义成功。
+
+### P1：应该有
+- step 执行失败原因结构化
+- 动作与请求记录的精确时间窗绑定
+- 基线噪声视图（公共块/广告块）
+- 对同一轮多动作的增量证据聚合
+
+### P2：后续可补
+- 会话恢复
+- 更丰富的 UI 采集能力
+- 更标准化的 recipe/promote 挂载接口
+
+---
+
+## 9.2 AI / OpenClaw 必须承担的内容
+
+这些不能再偷塞给 bridge。
+
+### AI 必须做：
+- 定义本轮探索目标
+- 判断 evidence 是否足够
+- 判断是否继续 loop
+- 判断是否 ask human
+- 判断是否成功
+- 判断是否沉淀为 reusable recipe / registered
+- 对外解释“为什么成功/为什么没成功”
+
+### AI 不得做：
+- 把 bridge 的 preset 名称当成成功证据
+- 把 `page_flow_complete` 当成语义成功
+- 把 observed_keys 命中当成主块确认
+- 没有增信理由时机械重跑
+
+---
+
+## 9.3 SKILL 必须补充的内容
+
+SKILL 应明确写出 AI 使用规则。
+
+### SKILL 必须补：
+
+#### 1. 命令选择规则
+- 什么时候用 registered capture
+- 什么时候用 explore
+- 什么时候用 latest/status/verify/report
+
+#### 2. loop 规则
+- 每轮只解决一个不确定性
+- 何时继续
+- 何时停
+- 何时 ask human
+
+#### 3. success 规则
+- 什么证据下才能告诉 human 成功
+- 什么情况下只能说“动作做了但未确认成功”
+
+#### 4. 沉淀规则
+- 什么时候只记为 reusable recipe
+- 什么时候可 promote 为 registered
+- recipe 与 registered 的区别
+
+#### 5. 严禁口径
+- 不得把 bridge 输出当最终业务结论
+- 不得让 runtime 自己理解开放式任务并制定策略
+
+---
+
+## 10. 推荐的闭环流程
+
+## 10.1 exploration 闭环
+
+1. 用户提出目标
+2. AI 判断为 exploration
+3. AI 生成 round-1 明确任务
+4. bridge 执行 round-1，输出 evidence bundle
+5. AI 判读：
+   - 更接近 / 不更接近 / 冲突 / 不足
+6. AI 决定：
+   - round-2
+   - ask human
+   - stop
+   - declare success
+7. 若多轮稳定，AI 决定是否沉淀 recipe 或 registered
+
+## 10.2 registered 闭环
+
+1. 用户提出已知稳定任务
+2. AI 直接使用 registered capture
+3. bridge 执行
+4. bridge 回产物与事实
+5. AI 对外解释结果
+6. 若 registered 失效，则回退到 exploration
+
+---
+
+## 11. “龙虎榜”这个案例下的具体口径
+
+## 11.1 不能再说的话
+不能说：
+- “我已经抓到了龙虎榜页面数据”
+- “因为我点击了龙虎榜所以就是龙虎榜数据”
+- “报告里写 dragon_tiger 所以任务成功”
+
+## 11.2 允许说的话
+可以说：
+- “我已经执行了进入行情并点击底部龙虎榜菜单的动作”
+- “当前产物完整，但最新 raw 仍更像公共行情/情绪数据，尚不足以证明已抓到龙虎榜核心数据”
+- “下一步需要针对点击后的 UI / 请求差分继续取证”
+
+这就是严格边界下的正确口径。
+
+---
+
+## 12. 改造阶段建议
+
+## Phase 1：补齐闭环最小执行能力
+目标：让 bridge 成为可持续的受控执行器，而不是一次性 runner。
+
+必须完成：
+- session 化
+- round 化
+- step-level action schema
+- before/after 差分证据
 - exploration evidence bundle v2
+- exploration verify/report 新口径
 
-### Phase 2：AI 驱动多轮探索
-目标：
-- 让 AI 真正基于 evidence bundle 决定下一轮
+## Phase 2：补齐 SKILL 控制逻辑
+目标：让 AI 真能按 skill 规则做 loop。
 
-做的事：
-- 定义单轮输入 / 输出协议
-- 定义轮次控制
-- 定义“证据是否改善”的 AI 判读逻辑
-- 定义 ask-human gate
+必须完成：
+- loop 规则
+- ask-human gate
+- success gate
+- reusable recipe gate
+- fallback to exploration / fallback to registered 规则
 
-产出：
-- exploration control loop
+## Phase 3：沉淀 registered / reuse 机制
+目标：只把真正稳定的路径固化。
 
-### Phase 3：registered promote 机制
-目标：
-- 只有在 exploration 足够稳定后，才沉淀为 registered page
-
-做的事：
-- 定义 promote checklist
-- 定义 registered task spec
-- 定义 registered verify / report
-
-产出：
-- 明确的 promote flow
+必须完成：
+- recipe schema
+- promote checklist
+- registered preset 生成/维护流程
+- 失效回退机制
 
 ---
 
-## 10. 当前不该做的事
+## 13. 明确的“不要做”
 
-为了防止再次跑偏，以下条目写死：
+为了避免再次混责任，写死如下：
 
-- 不要让 bridge 直接判断“是否进入目标主块”
-- 不要让 bridge 直接输出带业务语义的成功结论
-- 不要靠增加更多页面特化规则来掩盖边界问题
-- 不要把 generic key 命中直接解释成页面成功
-- 不要把 exploration 写成“半个 registered”
-- 不要让 AI 只复述 bridge 的弱信号
-- 不要被现有类名、状态名、历史代码结构牵着走
-
----
-
-## 11. 第一轮实际实施范围
-
-如果按这版方案推进，第一轮实现只做两件事：
-
-### 11.1 定义新的 exploration evidence bundle
-只关注：
-- 动作事实
-- UI 事实
-- 请求事实
-- 候选结构事实
-
-### 11.2 定义 AI 消费 evidence bundle 的控制协议
-只关注：
-- 继续
-- 收紧
-- 停止
-- ask human
-
-先不急着碰：
-- promote
-- registered 精细 verify
-- 业务摘要
-- 页面专属语义规则
-
-这样最不容易再次滑回“bridge 变聪明”的老路。
+- 不要让 bridge 直接判断页面语义
+- 不要让 bridge 输出 main block / success / promote 结论
+- 不要用更多页面专属规则掩盖闭环不足
+- 不要把“跑完一次 preset”当作“完成探索”
+- 不要让 SKILL 文档暗示 runtime 已经拥有不存在的能力
+- 不要让 AI 把弱信号包装成强结论
 
 ---
 
-## 12. 文档清理原则
+## 14. 当前唯一正确的协同心智
 
-旧方案文档里凡是容易诱导 bridge 承担以下责任的内容，应精简或移除：
-- bridge 做页面语义识别
-- bridge 输出 ready / reached / promote 一类强结论
-- bridge 用页面专属规则替代 AI 判读
-- exploration 成功约等于页面支持成立
+### bridge
+执行动作 + 采集证据 + 落盘 + 回读
 
-保留原则：
-- 只保留职责边界清晰、与新协同模型一致的内容
-- 所有 implementation note 都要服从“bridge 做证据，AI 做识别”
+### AI
+读证据 + 做判断 + 控 loop + 做 ask-human / success / reuse 决策
 
----
+### SKILL
+规定 AI 在这个系统里应该如何安全、严格、可复核地工作
 
-## 13. 当前结论
+一句话收束：
 
-最合适的边界不是“桥接器支持越来越多 preset”，而是：
-
-- **AI 负责判断怎么抓、何时继续、何时停止、何时 ask human、何时 promote**
-- **bridge 负责把探索和注册两类任务都执行成可消费、可复核、可验证的事实证据**
-
-这样才能同时满足：
-- 面对新页面时不僵硬
-- 面对重复页面时可复用
-- 失败时知道问题出在执行层、证据层，还是识别层
+**闭环的关键不是让 bridge 更像 AI，而是让 bridge 足够可控、证据足够完整、AI 足够克制且明确地承担自己的判断责任。**
