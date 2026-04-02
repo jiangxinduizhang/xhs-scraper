@@ -11,6 +11,7 @@ from dataclasses import dataclass, asdict
 from typing import Any
 
 from src.apps.kaipanla.exploration import ExplorationResult
+from src.apps.kaipanla.judgers import JudgementBundle, judge_exploration
 from src.apps.kaipanla.pages import normalize_page_name
 
 
@@ -37,6 +38,10 @@ class LoopDecision:
     next_navigation_hint: str = ""
     next_action_plan: list[dict[str, Any]] | None = None
     user_message: str = ""
+    judgement: dict[str, Any] | None = None
+    judgement_source: str = ""
+    confidence: str = ""
+    missing_capability: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -85,35 +90,54 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
     noise_count = len(structure_facts.get("noise_structures") or [])
     current_round = max(1, int(result.round_index or 1))
     max_rounds = max(1, int(result.max_rounds or 1))
+    judgement_bundle: JudgementBundle = judge_exploration(result)
+    primary = judgement_bundle.primary
+    judgement_dict = judgement_bundle.to_dict()
 
     if result.evidence_status == "evidence_insufficient":
         return LoopDecision(
             decision="ask_human",
             reason="当前证据不足，继续探索容易变成碰运气",
             user_message="这轮拿到的证据太弱，继续下去更像碰运气。你是要严格确认龙虎榜主块，还是先接受相关候选证据？",
+            judgement=judgement_dict,
+            judgement_source=primary.source,
+            confidence=primary.confidence,
+            missing_capability=primary.missing_capability,
         )
 
     if current_round >= max_rounds:
         return LoopDecision(
             decision="stop",
             reason="已到当前轮次上限，必须停止并对外解释当前证据强度",
-            user_message="我已经按当前上限完成探索。动作执行和证据已收集，但还不能仅凭这些确认目标主块已经命中。",
+            user_message=primary.user_summary or "我已经按当前上限完成探索。动作执行和证据已收集，但还不能仅凭这些确认目标主块已经命中。",
+            judgement=judgement_dict,
+            judgement_source=primary.source,
+            confidence=primary.confidence,
+            missing_capability=primary.missing_capability,
         )
 
-    if ui_changed and raw_record_count > 0 and candidate_count > max(0, noise_count):
+    if primary.label in {"institution_data_candidate", "dragon_tiger_related_surface", "home_feed_dominant"} and ui_changed and raw_record_count > 0 and candidate_count > max(0, noise_count):
         return LoopDecision(
             decision="continue",
-            reason="当前已有增信证据，可以再做一轮最小动作来缩小不确定性",
+            reason=f"当前代码级判定结果为 {primary.label}，且本轮存在一定增信，可以继续一轮最小动作缩小不确定性",
             next_round_index=current_round + 1,
             next_navigation_hint="基于上一轮证据，优先验证目标入口后的主块是否真正刷新",
             next_action_plan=[
-                {"action": "wait", "seconds": 2},
+                {"action": "sleep", "seconds": 2},
                 {"action": "swipe_up", "times": 1},
             ],
+            judgement=judgement_dict,
+            judgement_source=primary.source,
+            confidence=primary.confidence,
+            missing_capability=primary.missing_capability,
         )
 
     return LoopDecision(
         decision="ask_human",
         reason="当前没有足够增信理由进入下一轮自动探索",
-        user_message="我已经拿到一轮证据，但增信还不够，下一轮如果继续会更依赖猜测。你要我继续做一次最小补充探索，还是先按当前证据给你结论？",
+        user_message=primary.user_summary or "我已经拿到一轮证据，但增信还不够，下一轮如果继续会更依赖猜测。你要我继续做一次最小补充探索，还是先按当前证据给你结论？",
+        judgement=judgement_dict,
+        judgement_source=primary.source,
+        confidence=primary.confidence,
+        missing_capability=primary.missing_capability,
     )

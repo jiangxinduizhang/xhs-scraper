@@ -337,9 +337,13 @@ def cmd_explore(args) -> dict:
         if decision.next_action_plan:
             task.action_plan = list(decision.next_action_plan)
 
+    final_decision = rounds[-1]["decision"] if rounds else None
     payload["rounds"] = rounds
     payload["run"] = final_run.to_dict() if final_run else None
     payload["exploration"] = final_exploration.to_dict() if final_exploration else None
+    payload["judgement"] = final_decision.get("judgement") if isinstance(final_decision, dict) else None
+    payload["judgement_source"] = final_decision.get("judgement_source") if isinstance(final_decision, dict) else None
+    payload["user_summary"] = final_decision.get("user_message") if isinstance(final_decision, dict) else ""
     payload["runtime_stop_reason"] = "evidence_bundle_collected" if final_exploration and final_exploration.evidence_status == "evidence_complete" else ("max_rounds_reached" if reached_limit else "incomplete")
     payload["requires_ai_decision"] = True
     payload["ok"] = bool(final_run and final_run.status in ("success", "partial"))
