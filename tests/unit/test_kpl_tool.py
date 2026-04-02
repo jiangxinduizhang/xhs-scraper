@@ -92,9 +92,11 @@ def test_kpl_tool_ask_routes_registered_pages():
 
     radar = parse_nl_request("抓取盘中雷达")
     featured = parse_nl_request("抓取精选数据")
+    dragon = parse_nl_request("抓取龙虎榜")
 
     assert radar["preset"] == "market_radar"
     assert featured["preset"] == "market_featured"
+    assert dragon["preset"] == "dragon_tiger"
 
 
 def test_kpl_tool_latest_and_status(tmp_path, monkeypatch, capsys):

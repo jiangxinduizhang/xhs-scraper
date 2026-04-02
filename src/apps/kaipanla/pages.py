@@ -116,6 +116,34 @@ PAGE_SPECS: dict[str, PageSpec] = {
         expected_keys=["Topic", "Theme", "List"],
         required_events=["launch_app", "home_reached", "market_reached", "featured_reached", "request_captured", "report_written", "run_written"],
     ),
+    "dragon_tiger": PageSpec(
+        name="dragon_tiger",
+        goal="抓取龙虎榜页面数据并落盘",
+        modules=["dragon_tiger", "ranking"],
+        output=["run", "report", "page_summary"],
+        compare="none",
+        interpretation_style="human_summary",
+        next_action_hint="继续细化龙虎榜子榜单与个股明细",
+        notes=[
+            "龙虎榜先作为已注册页面接入，由我来决定具体抓法和后续拆分。",
+            "第一版先验证导航、抓包和关键字段命中闭环。",
+        ],
+        navigation_steps=[
+            {"action": "back", "times": 3, "sleep": 0.8},
+            {"action": "tap_text_or_fallback", "text": "首页", "timeout": 2},
+            {"action": "record", "name": "home_reached", "detail": "首页"},
+            {"action": "sleep", "seconds": 1.0},
+            {"action": "tap_text", "text": "行情", "timeout": 3},
+            {"action": "record", "name": "market_reached", "detail": "行情"},
+            {"action": "sleep", "seconds": 2.0},
+            {"action": "tap_text", "text": "龙虎榜", "timeout": 3},
+            {"action": "record", "name": "dragon_tiger_reached", "detail": "龙虎榜"},
+            {"action": "sleep", "seconds": 2.0},
+            {"action": "swipe_up", "times": 2, "sleep": 1.0},
+        ],
+        expected_keys=["LongHuBang", "DragonTigerList", "List"],
+        required_events=["launch_app", "home_reached", "market_reached", "dragon_tiger_reached", "request_captured", "report_written", "run_written"],
+    ),
 }
 
 
@@ -130,6 +158,9 @@ ALIASES = {
     "featured": "market_featured",
     "market_featured": "market_featured",
     "精选": "market_featured",
+    "dragon_tiger": "dragon_tiger",
+    "龙虎榜": "dragon_tiger",
+    "龙虎": "dragon_tiger",
 }
 
 

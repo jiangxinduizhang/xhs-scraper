@@ -22,8 +22,12 @@ def test_task_spec_supports_multiple_registered_pages():
 
     assert radar.page == "market_radar"
     assert radar.preset == "market_radar"
+    dragon = TaskSpec.for_preset("dragon_tiger")
+
     assert featured.page == "market_featured"
     assert featured.preset == "market_featured"
+    assert dragon.page == "dragon_tiger"
+    assert dragon.preset == "dragon_tiger"
 
 
 def test_run_result_roundtrip(tmp_path):

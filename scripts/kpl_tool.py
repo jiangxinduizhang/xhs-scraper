@@ -107,7 +107,9 @@ def _parse_style(text: str) -> str:
 def parse_nl_request(text: str, *, default_preset: str = "market_emotion") -> dict:
     normalized = re.sub(r"\s+", "", text.lower())
     preset = default_preset
-    if _contains_any(text, ["盘中雷达", "雷达"]):
+    if _contains_any(text, ["龙虎榜", "龙虎"]):
+        preset = "dragon_tiger"
+    elif _contains_any(text, ["盘中雷达", "雷达"]):
         preset = "market_radar"
     elif _contains_any(text, ["精选"]):
         preset = "market_featured"
