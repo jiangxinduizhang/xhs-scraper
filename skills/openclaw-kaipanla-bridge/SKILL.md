@@ -211,9 +211,9 @@ exploration 的成功定义是：
 优先使用 bridge 提供的稳定动作，而不是让 runtime 接开放式对话。
 
 - `capture`：执行已定义任务并写出产物
-- `explore`：执行探索任务并输出 exploration 证据
-- `verify`：校验运行是否真的成立
-- `report`：回读运行结果
+- `explore`：执行探索任务并输出 exploration 证据；默认应受有限轮数、self-proof gate、ask-human gate 约束
+- `verify`：校验运行是否真的成立，并在 exploration 场景下判断是否仍只能视为候选证据
+- `report`：回读运行结果；如果存在 blocker，应明确写出“不能宣称稳定抓到”
 - `latest`：查看最近一次运行
 - `status`：查看最近一次运行及校验结果
 - `ask`：做自然语言到动作/参数的路由建议；不是 runtime 自己做开放式对话理解
@@ -252,11 +252,16 @@ exploration 任务额外关注：
 - `readiness_reasons`
 - `recommendation`
 - `recommended_page_name`
+- `self_proof_blockers`
+- `ask_human`（如命中停点）
+- `safe_to_claim_stable_capture`
 
 注意：
 - `recommended_page_name` 只是弱归因 / 候选页面判断
 - 不是“最终主块已确认”
 - 不是“页面已正式支持”
+- `strong_candidate_evidence` 也不自动等于“已稳定抓到目标主数据”
+- 只要 `self_proof_blockers` 非空，就不应对外宣称“已稳定抓到”
 
 ---
 
@@ -278,6 +283,9 @@ exploration 任务额外关注：
 - `verify=verified` 才表示闭环成立
 - `step_events` 必须完整，才能证明过程真的发生过
 - exploration 的价值在于“新证据”，不是“正式支持承诺”
+- exploration 结果必须经过 `self-proof gate`
+- 只要存在 `self_proof_blockers`，就应降级为“候选证据”，而不是“已稳定抓到”
+- `safe_to_claim_stable_capture=true` 时，才允许对外使用“稳定抓到”这一类口径
 
 ---
 
@@ -295,6 +303,7 @@ exploration 任务额外关注：
 2. 一次 exploration 成功就等于正式支持
 3. runtime 自己会理解无限自然语言和无限页面语义
 4. bridge 自己会决定 promote
+5. 仅凭 `strong_candidate_evidence` 就能对外宣称“已稳定抓到目标主块”
 
 ---
 
@@ -311,6 +320,7 @@ exploration 任务额外关注：
 - 把 exploration 结果直接当正式产品化支持
 - 把 `strong_candidate_evidence` 解释为“可以自动 promote”
 - 把 runtime 输出当成最终语义判断
+- 在 `self_proof_blockers` 未清空前，对外说“已稳定抓到目标页面主数据”
 
 如果 exploration 已经输出清晰证据，但页面是否值得沉淀仍不确定，允许继续停留在 `exploration-first` 状态。
 
@@ -340,6 +350,21 @@ exploration 任务额外关注：
 - 你这次想抓哪个方向：市场情绪、排行/连板、资金节奏、龙虎榜，还是你指定的页面？
 
 不要连环追问，不要替用户脑补过多。
+
+### exploration 默认闭环
+
+当进入 exploration 时，默认按“有限自动探索 + 到点刹车”的心智处理：
+
+- 默认不是只跑一轮就下结论
+- 允许做 2~3 轮最小调整
+- 每轮都必须重新检查证据是否增信
+- 如果证据没有改善，或 `self_proof_blockers` 持续存在，应触发 `ask_human`
+- `ask_human` 的目标是收窄目标范围，而不是继续盲猜
+
+推荐 ask-human 方式：
+- 你要锁定的是页面主列表/主块，还是页面内任意相关数据？
+
+不要无限自动 exploration，不要为了避免提问而硬凑结论。
 
 ---
 
