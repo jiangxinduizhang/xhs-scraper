@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 import shutil
+import xml.etree.ElementTree as ET
 
 from src import config
 from src.apps.kaipanla.manifest import build_stub_manifest
@@ -344,7 +345,52 @@ class KaipanlaRunner:
                 return True
             except Exception:
                 continue
+
+        try:
+            xml = d.dump_hierarchy(compressed=False)
+            bounds = KaipanlaRunner._find_text_bounds_in_xml(xml, target)
+            if bounds:
+                x1, y1, x2, y2 = bounds
+                d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                time.sleep(0.8)
+                return True
+        except Exception:
+            return False
         return False
+
+    @staticmethod
+    def _find_text_bounds_in_xml(xml_text: str, target: str) -> tuple[int, int, int, int] | None:
+        try:
+            root = ET.fromstring(xml_text)
+        except Exception:
+            return None
+
+        def parse_bounds(raw: str) -> tuple[int, int, int, int] | None:
+            try:
+                raw = (raw or "").strip()
+                left, right = raw.split("][")
+                x1, y1 = left.lstrip("[").split(",")
+                x2, y2 = right.rstrip("]").split(",")
+                return int(x1), int(y1), int(x2), int(y2)
+            except Exception:
+                return None
+
+        best = None
+        best_area = -1
+        for node in root.iter("node"):
+            text_val = str(node.attrib.get("text") or "")
+            desc_val = str(node.attrib.get("content-desc") or "")
+            if target not in text_val and target not in desc_val:
+                continue
+            bounds = parse_bounds(node.attrib.get("bounds", ""))
+            if not bounds:
+                continue
+            x1, y1, x2, y2 = bounds
+            area = max(0, x2 - x1) * max(0, y2 - y1)
+            if area > best_area:
+                best = bounds
+                best_area = area
+        return best
 
     @staticmethod
     def _tap_center_fallback(d) -> None:

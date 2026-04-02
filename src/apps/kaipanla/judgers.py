@@ -72,6 +72,18 @@ TOP_TITLE_HINTS = {
     "实时龙虎榜",
 }
 
+MARKET_EMOTION_PAGE_HINTS = {
+    "沪深预测量能",
+    "涨跌家数",
+    "涨跌停",
+    "微盘股",
+    "竞价涨停委买",
+    "尾盘抢筹",
+    "行业",
+    "板块",
+    "历史统计",
+}
+
 
 @dataclass(slots=True)
 class Judgement:
@@ -133,6 +145,15 @@ def _has_top_title_anchor(texts: list[str]) -> bool:
     return "龙虎榜" in joined and ("首页&#10;Home" not in joined)
 
 
+def _infer_intent(result: ExplorationResult) -> str:
+    target = f"{result.target_hint}\n{result.task_id}"
+    if "龙虎榜" in target or "dragon-tiger" in target or "dragon_tiger" in target:
+        return "dragon_tiger"
+    if "市场情绪" in target or "market-emotion" in target or "market_emotion" in target:
+        return "market_emotion"
+    return "generic"
+
+
 def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     texts = _collect_visible_texts(result)
     evidence = result.evidence or {}
@@ -142,6 +163,7 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     candidates = structure_facts.get("candidate_structures") or []
     observed_keys = [str(x) for x in (structure_facts.get("observed_keys") or [])]
     key_names = {str(item.get("name", "")) for item in candidates if isinstance(item, dict)}
+    intent = _infer_intent(result)
 
     judgements: list[Judgement] = []
 
@@ -165,13 +187,39 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
                 confidence="high",
                 reason="当前可见文本仍明显以首页/推荐流内容为主，说明很可能还停留在公共内容流或其邻近区域。",
                 matched_signals=home_hits[:6],
-                user_summary="当前证据仍更像首页/推荐流，不足以证明已经进入龙虎榜主块。",
+                user_summary="当前证据仍更像首页/推荐流，不足以证明已经进入目标页面。",
             )
         )
 
+    if intent == "market_emotion":
+        emotion_hits = _contains_any(texts, {"市场情绪"})
+        page_hits = _contains_any(texts, MARKET_EMOTION_PAGE_HINTS)
+        if emotion_hits:
+            judgements.append(
+                Judgement(
+                    source="code_judger",
+                    label="market_emotion_related_surface",
+                    confidence="medium",
+                    reason="证据里已经出现市场情绪相关入口/文案，但还需要更多页面级信号来确认已经真正进入市场情绪页。",
+                    matched_signals=(emotion_hits + page_hits[:4])[:6],
+                    user_summary="已经出现市场情绪相关线索，但还需要确认是否真正进入市场情绪页面。",
+                )
+            )
+        if len(page_hits) >= 4 and raw_record_count > 0:
+            judgements.append(
+                Judgement(
+                    source="code_judger",
+                    label="market_emotion_page_reached",
+                    confidence="high",
+                    reason="当前 UI 已出现市场情绪页核心指标与分区，如量能、涨跌家数、涨跌停、微盘股及题材/行业块，且已有请求与解析数据，足以判定已进入市场情绪页面。",
+                    matched_signals=page_hits[:8],
+                    user_summary="已成功进入市场情绪页面，并拿到该页的核心行情/题材数据。",
+                )
+            )
+
     dragon_hits = _contains_any(texts, DRAGON_TIGER_PAGE_HINTS)
     dragon_key_hits = sorted([key for key in observed_keys if "dragon" in key.lower() or "tiger" in key.lower() or "longhu" in key.lower()])
-    if dragon_hits or dragon_key_hits or anchor_signals:
+    if intent == "dragon_tiger" and (dragon_hits or dragon_key_hits or anchor_signals):
         judgements.append(
             Judgement(
                 source="code_judger",
@@ -186,7 +234,7 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     dragon_data_hits = _contains_any(texts, DRAGON_TIGER_DATA_HINTS)
     dragon_text_hit_count = _count_hits(texts, DRAGON_TIGER_PAGE_HINTS | DRAGON_TIGER_DATA_HINTS)
     stock_key_hits = sorted([key for key in observed_keys if key in {"code", "name", "buy", "sell", "net", "amount"}])
-    if bottom_nav_anchor and top_title_anchor and dragon_hits and dragon_data_hits and dragon_text_hit_count >= 3 and not home_hits:
+    if intent == "dragon_tiger" and bottom_nav_anchor and top_title_anchor and dragon_hits and dragon_data_hits and dragon_text_hit_count >= 3 and not home_hits:
         judgements.append(
             Judgement(
                 source="code_judger",
@@ -200,7 +248,7 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
 
     institution_hits = _contains_any(texts, INSTITUTION_HINTS)
     institution_key_hits = sorted([key for key in key_names if "seat" in key.lower() or "broker" in key.lower() or "institution" in key.lower()])
-    if institution_hits and (dragon_hits or dragon_data_hits):
+    if intent == "dragon_tiger" and institution_hits and (dragon_hits or dragon_data_hits):
         judgements.append(
             Judgement(
                 source="code_judger",
@@ -213,7 +261,7 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
         )
 
     page_entry_hits = _contains_any(texts, {"今日上榜数", "股票", "机构", "营业部", "股票名称"})
-    if bottom_nav_anchor and page_entry_hits and any(text.isdigit() and len(text) == 6 for text in texts):
+    if intent == "dragon_tiger" and bottom_nav_anchor and page_entry_hits and any(text.isdigit() and len(text) == 6 for text in texts):
         judgements.append(
             Judgement(
                 source="code_judger",
@@ -226,7 +274,7 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
         )
 
     broker_hits = _contains_any(texts, BROKER_HINTS)
-    if broker_hits and (dragon_hits or dragon_data_hits):
+    if intent == "dragon_tiger" and broker_hits and (dragon_hits or dragon_data_hits):
         judgements.append(
             Judgement(
                 source="code_judger",
@@ -252,10 +300,12 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
         )
 
     priority = {
+        "market_emotion_page_reached": 8,
         "dragon_tiger_page_reached": 7,
         "institution_data_candidate": 6,
         "broker_data_candidate": 5,
         "dragon_tiger_data_candidate": 4,
+        "market_emotion_related_surface": 4,
         "dragon_tiger_related_surface": 3,
         "home_feed_dominant": 2,
         "judger_insufficient": 1,

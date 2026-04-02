@@ -110,11 +110,11 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
             missing_capability=primary.missing_capability,
         )
 
-    if primary.label == "dragon_tiger_page_reached":
+    if primary.label in {"dragon_tiger_page_reached", "market_emotion_page_reached"}:
         return LoopDecision(
             decision="stop",
-            reason="已验证进入龙虎榜页面，当前可停止并对外返回页面级结果",
-            user_message=primary.user_summary or "已成功进入龙虎榜页面，并拿到页面级榜单数据。",
+            reason="已验证进入目标页面，当前可停止并对外返回页面级结果",
+            user_message=primary.user_summary or "已成功进入目标页面，并拿到页面级数据。",
             judgement=judgement_dict,
             judgement_source=primary.source,
             confidence=primary.confidence,
@@ -141,6 +141,23 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
             next_action_plan=[
                 {"action": "sleep", "seconds": 2},
                 {"action": "tap_text", "target": "龙虎榜"},
+                {"action": "sleep", "seconds": 2},
+            ],
+            judgement=judgement_dict,
+            judgement_source=primary.source,
+            confidence=primary.confidence,
+            missing_capability=primary.missing_capability,
+        )
+
+    if primary.label in {"market_emotion_related_surface", "home_feed_dominant"} and "市场情绪" in (result.target_hint or ""):
+        return LoopDecision(
+            decision="continue",
+            reason="当前需要直接验证首页顶部‘市场情绪’入口是否能切到市场情绪页。",
+            next_round_index=current_round + 1,
+            next_navigation_hint="优先点击首页顶部市场情绪入口，并确认是否出现量能/涨跌家数/涨跌停等市场情绪页指标",
+            next_action_plan=[
+                {"action": "sleep", "seconds": 2},
+                {"action": "tap_text", "target": "市场情绪"},
                 {"action": "sleep", "seconds": 2},
             ],
             judgement=judgement_dict,
