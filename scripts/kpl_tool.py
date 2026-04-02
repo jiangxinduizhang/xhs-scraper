@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.apps.kaipanla.report import build_market_summary, render_run_report
+from src.apps.kaipanla.pages import list_pages
+from src.apps.kaipanla.report import build_page_summary, render_run_report
 from src.apps.kaipanla.runner import run_task
 from src.apps.kaipanla.task import RunResult, TaskSpec
 from src.apps.kaipanla.verify import render_verification_summary, verify_run
@@ -35,6 +36,7 @@ def _task_meta(task: TaskSpec, *, used_default_preset: bool = False) -> dict:
         "compare": task.compare,
         "interpretation_style": task.interpretation_style,
         "used_default_preset": used_default_preset,
+        "supported_pages": list_pages(),
         "message": "当前按默认预设 market_emotion 执行" if used_default_preset else f"当前按预设 {task.preset} 执行",
     }
 
@@ -105,6 +107,12 @@ def _parse_style(text: str) -> str:
 def parse_nl_request(text: str, *, default_preset: str = "market_emotion") -> dict:
     normalized = re.sub(r"\s+", "", text.lower())
     preset = default_preset
+    if _contains_any(text, ["盘中雷达", "雷达"]):
+        preset = "market_radar"
+    elif _contains_any(text, ["精选"]):
+        preset = "market_featured"
+    elif _contains_any(text, ["情绪", "市场情绪"]):
+        preset = "market_emotion"
     intent = "read"
 
     if _contains_any(normalized, ["运行状态", "状态", "成功没", "成功了吗", "verify", "验证"]):
@@ -198,7 +206,7 @@ def cmd_capture(args) -> dict:
         "task": task.to_dict(),
         "task_meta": _task_meta(task, used_default_preset=used_default_preset),
         "run": run.to_dict(),
-        "market_summary": build_market_summary(task, run),
+        "page_summary": build_page_summary(task, run),
     }
     failure = _structured_failure(run)
     if failure:
@@ -221,7 +229,7 @@ def cmd_verify(args) -> dict:
     if task:
         payload["task_meta"] = _task_meta(task)
     if run and task:
-        payload["market_summary"] = build_market_summary(task, run)
+        payload["page_summary"] = build_page_summary(task, run)
     return payload
 
 
@@ -243,7 +251,7 @@ def cmd_report(args) -> dict:
         "task_meta": _task_meta(task, used_default_preset=used_default_preset),
         "run": run.to_dict(),
         "report_text": report,
-        "market_summary": build_market_summary(task, run),
+        "page_summary": build_page_summary(task, run),
     }
     return payload
 
@@ -273,7 +281,7 @@ def cmd_latest(args) -> dict:
         "task_meta": _task_meta(task, used_default_preset=used_default_preset),
     }
     if task:
-        payload["market_summary"] = build_market_summary(task, run)
+        payload["page_summary"] = build_page_summary(task, run)
     return payload
 
 

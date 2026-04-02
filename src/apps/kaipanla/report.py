@@ -8,6 +8,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.task import RunResult, TaskSpec
 
 
@@ -338,6 +339,83 @@ def _build_day_compare(current_data: dict, previous_data: dict) -> dict | None:
     }
 
 
+def _find_latest_record_with_keys(result: RunResult, expected_keys: list[str] | None) -> tuple[dict, dict]:
+    best_data: dict = {}
+    best_rec: dict = {}
+    best_raw_ts = ""
+    best_data_time = -1
+    expected = list(expected_keys or [])
+    for raw_path in result.raw_paths or []:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists():
+            continue
+        for line in [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            data = rec.get("data")
+            if not isinstance(data, dict):
+                continue
+            if expected and not any(key in data for key in expected):
+                continue
+            raw_ts, data_time = _extract_record_ts(rec, data)
+            if data_time > best_data_time or (data_time == best_data_time and raw_ts > best_raw_ts):
+                best_data = data
+                best_rec = rec
+                best_raw_ts = raw_ts
+                best_data_time = data_time
+    selected_snapshot = {
+        "raw_ts": str(best_rec.get("ts") or "") if isinstance(best_rec, dict) else "",
+        "day": str(best_data.get("Day") or "") if isinstance(best_data, dict) else "",
+        "time": str(best_data.get("Time") or "") if isinstance(best_data, dict) else "",
+        "reason": "latest_valid_record_by_expected_keys_then_time_then_raw_ts",
+        "source": ",".join(expected) if expected else "generic",
+    } if best_data else {}
+    return best_data, selected_snapshot
+
+
+def _build_generic_page_summary(task: TaskSpec, result: RunResult) -> dict:
+    page_spec = get_page_spec(task.page)
+    raw, selected_snapshot = _find_latest_record_with_keys(result, page_spec.expected_keys)
+    hit_keys = [key for key in page_spec.expected_keys if isinstance(raw, dict) and key in raw]
+    bullets: list[str] = []
+    if result.status not in {"success", "partial"}:
+        bullets.append("本次抓取未形成可稳定解读的页面摘要，请先检查抓取状态和错误信息。")
+    else:
+        bullets.append(f"页面 {task.page} 已抓取完成，当前命中关键字段：{', '.join(hit_keys) or '无'}。")
+        bullets.append(f"本页目标：{task.goal or page_spec.goal}。")
+        if isinstance(raw, dict):
+            keys_preview = list(raw.keys())[:12]
+            bullets.append(f"当前快照字段预览：{', '.join(keys_preview)}。")
+        bullets.append(f"原始请求 {result.captured_count} 条，解析记录 {result.parsed_count} 条。")
+    return {
+        "page": task.page,
+        "status": result.status,
+        "bullets": bullets,
+        "selected_snapshot": selected_snapshot,
+        "counts": {
+            "captured_count": result.captured_count,
+            "parsed_count": result.parsed_count,
+            "unknown": int((result.source_counts or {}).get("unknown", 0) or 0),
+        },
+        "sections": {
+            "verification_fields": [
+                f"页面: {task.page}",
+                f"页面日期: {raw.get('Day', '') if isinstance(raw, dict) else ''}",
+                f"页面时间: {raw.get('Time', '') if isinstance(raw, dict) else ''}",
+                f"selected raw ts: {selected_snapshot.get('raw_ts', '')}",
+                f"selected reason: {selected_snapshot.get('reason', '')}",
+                f"关键字段命中: {', '.join(hit_keys) or '无'}",
+            ],
+            "page_keys": list(raw.keys())[:20] if isinstance(raw, dict) else [],
+        },
+        "raw_snapshot": raw if isinstance(raw, dict) else {},
+    }
+
+
 def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     msg_top = _count(result, "msg_top")
     fkyd = _count(result, "market_fkyd")
@@ -559,8 +637,14 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     }
 
 
+def build_page_summary(task: TaskSpec, result: RunResult) -> dict:
+    if task.page == "market_emotion":
+        return build_market_summary(task, result)
+    return _build_generic_page_summary(task, result)
+
+
 def _render_human_summary(task: TaskSpec, result: RunResult) -> list[str]:
-    summary = build_market_summary(task, result)
+    summary = build_page_summary(task, result)
     lines = [f"- {line}" for line in summary["bullets"]]
     sections = summary.get("sections", {})
     day_compare = sections.get("day_compare")

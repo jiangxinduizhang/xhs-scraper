@@ -41,6 +41,7 @@ def test_kpl_tool_capture_emits_json(tmp_path, monkeypatch, capsys):
     assert payload["command"] == "capture"
     assert payload["task"]["task_id"] == task.task_id
     assert payload["run"]["captured_count"] == 5
+    assert "page_summary" in payload
 
 
 def test_kpl_tool_verify_emits_json(tmp_path, monkeypatch, capsys):
@@ -84,6 +85,16 @@ def test_kpl_tool_verify_emits_json(tmp_path, monkeypatch, capsys):
     assert payload["ok"] is True
     assert payload["command"] == "verify"
     assert payload["verification"]["status"] == "verified"
+
+
+def test_kpl_tool_ask_routes_registered_pages():
+    from scripts.kpl_tool import parse_nl_request
+
+    radar = parse_nl_request("抓取盘中雷达")
+    featured = parse_nl_request("抓取精选数据")
+
+    assert radar["preset"] == "market_radar"
+    assert featured["preset"] == "market_featured"
 
 
 def test_kpl_tool_latest_and_status(tmp_path, monkeypatch, capsys):

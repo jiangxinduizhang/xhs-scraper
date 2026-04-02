@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 import json
 
+from src.apps.kaipanla.pages import build_task_defaults
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -60,30 +62,12 @@ class TaskSpec:
 
     @classmethod
     def market_emotion_default(cls) -> "TaskSpec":
-        task_id = f"kpl-market-emotion-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        return cls(
-            task_id=task_id,
-            page="market_emotion",
-            preset="market_emotion",
-            goal="验证市场情绪页可稳定抓取并落库",
-            modules=["emotion", "ranking", "money_flow", "themes"],
-            output=["run", "report", "market_summary", "day_compare"],
-            compare="previous_trading_day",
-            interpretation_style="trader_recap",
-            next_action_hint="继续抓行情页其他标签",
-            notes=[
-                "当前默认预设任务是 market_emotion。",
-                "先保持最小闭环，不扩展多页面任务。",
-                "若抓取成功，优先输出可回读产物，再决定下一步。",
-            ],
-        )
+        return cls.for_preset("market_emotion")
 
     @classmethod
     def for_preset(cls, preset: str | None) -> "TaskSpec":
-        normalized = (preset or "market_emotion").strip().lower()
-        if normalized in {"market_emotion", "default", "latest_market"}:
-            return cls.market_emotion_default()
-        raise ValueError(f"unsupported preset: {preset}")
+        defaults = build_task_defaults(preset)
+        return cls(**defaults)
 
 
 @dataclass(slots=True)

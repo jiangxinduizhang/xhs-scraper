@@ -16,6 +16,16 @@ def test_task_spec_roundtrip(tmp_path):
     assert loaded.goal == "验证市场情绪页可稳定抓取并落库"
 
 
+def test_task_spec_supports_multiple_registered_pages():
+    radar = TaskSpec.for_preset("market_radar")
+    featured = TaskSpec.for_preset("market_featured")
+
+    assert radar.page == "market_radar"
+    assert radar.preset == "market_radar"
+    assert featured.page == "market_featured"
+    assert featured.preset == "market_featured"
+
+
 def test_run_result_roundtrip(tmp_path):
     result = RunResult(
         task_id="task-001",

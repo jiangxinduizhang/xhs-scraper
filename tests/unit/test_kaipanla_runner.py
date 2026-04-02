@@ -1,7 +1,38 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from src.apps.kaipanla.runner import KaipanlaRunner
 from src.apps.kaipanla.task import TaskSpec
+
+
+def test_run_navigation_executes_registered_steps(monkeypatch):
+    task = TaskSpec.for_preset("market_radar")
+    runner = KaipanlaRunner(task)
+
+    class DummyDevice:
+        def __init__(self):
+            self.actions = []
+
+        def press(self, key):
+            self.actions.append(("press", key))
+
+        def window_size(self):
+            return (1000, 2000)
+
+        def swipe(self, *args, **kwargs):
+            self.actions.append(("swipe", args))
+
+    dummy = DummyDevice()
+    monkeypatch.setattr(KaipanlaRunner, "device", property(lambda self: dummy))
+    monkeypatch.setattr(KaipanlaRunner, "_click_text", staticmethod(lambda d, text, timeout=2.0: True))
+
+    result = SimpleNamespace(step_events=[])
+    runner._run_task(result)
+
+    event_names = [event["name"] for event in result.step_events]
+    assert "radar_reached" in event_names
+    assert any(action[0] == "press" for action in dummy.actions)
+    assert any(action[0] == "swipe" for action in dummy.actions)
 
 
 def test_archive_previous_artifacts(tmp_path):

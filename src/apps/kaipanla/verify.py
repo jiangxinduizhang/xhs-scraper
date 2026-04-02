@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.storage.db import Database
+from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.task import RunResult, TaskSpec
 
 
@@ -22,6 +23,52 @@ class VerificationResult:
     details: list[str] = field(default_factory=list)
     selected_snapshot: dict = field(default_factory=dict)
     flags: dict = field(default_factory=dict)
+
+
+def _find_latest_record_with_keys(raw_paths: list[str] | None, expected_keys: list[str] | None) -> tuple[dict, dict]:
+    expected = list(expected_keys or [])
+    best_data: dict = {}
+    best_rec: dict = {}
+    best_time = -1
+    best_ts = ""
+    for raw in raw_paths or []:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            data = rec.get("data")
+            if not isinstance(data, dict):
+                continue
+            if expected and not any(key in data for key in expected):
+                continue
+            try:
+                current_time = int(data.get("Time") or 0)
+            except (TypeError, ValueError):
+                current_time = 0
+            current_ts = str(rec.get("ts") or "")
+            if current_time > best_time or (current_time == best_time and current_ts > best_ts):
+                best_time = current_time
+                best_ts = current_ts
+                best_data = data
+                best_rec = rec
+    selected_snapshot = {
+        "raw_ts": str(best_rec.get("ts") or "") if isinstance(best_rec, dict) else "",
+        "day": str(best_data.get("Day") or "") if isinstance(best_data, dict) else "",
+        "time": str(best_data.get("Time") or "") if isinstance(best_data, dict) else "",
+        "phb_title": str(best_data.get("PHBTitle") or best_data.get("PHBtitle") or "") if isinstance(best_data, dict) else "",
+        "reason": "latest_valid_record_by_expected_keys_then_time_then_raw_ts",
+        "source": ",".join(expected) if expected else "generic",
+    } if best_data else {}
+    return best_data, selected_snapshot
 
 
 def _find_latest_daban_snapshot(raw_paths: list[str] | None) -> tuple[dict, dict]:
@@ -82,6 +129,7 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
     checks: list[str] = []
     details: list[str] = []
     ok = True
+    page_spec = get_page_spec(task.page)
 
     report_path = Path(result.report_path or Path(task.reports_dir) / f"{task.task_id}.md")
     if report_path.exists():
@@ -133,25 +181,35 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         if error_stage:
             details.append(f"error_stage={error_stage}")
 
-    latest_snapshot, selected_snapshot = _find_latest_daban_snapshot(result.raw_paths)
-    latest_daban = latest_snapshot.get("DaBanList") if isinstance(latest_snapshot, dict) else {}
-    required_main_fields = ["ZHQD", "SZJS", "XDJS", "PPJS", "tZhangTing", "tDieTing", "tFengBan", "qscln"]
-    missing_main_fields = [field for field in required_main_fields if not latest_daban or latest_daban.get(field) in (None, "")]
-    if missing_main_fields:
-        ok = False
-        details.append(f"主值字段缺失: {', '.join(missing_main_fields)}")
+    latest_snapshot, selected_snapshot = _find_latest_record_with_keys(result.raw_paths, page_spec.expected_keys)
+    missing_main_fields: list[str] = []
+    if task.page == "market_emotion":
+        latest_daban = latest_snapshot.get("DaBanList") if isinstance(latest_snapshot, dict) else {}
+        required_main_fields = ["ZHQD", "SZJS", "XDJS", "PPJS", "tZhangTing", "tDieTing", "tFengBan", "qscln"]
+        missing_main_fields = [field for field in required_main_fields if not latest_daban or latest_daban.get(field) in (None, "")]
+        if missing_main_fields:
+            ok = False
+            details.append(f"主值字段缺失: {', '.join(missing_main_fields)}")
+        else:
+            details.append(
+                "最新主值快照: "
+                f"ZHQD={latest_daban.get('ZHQD')} "
+                f"SZJS={latest_daban.get('SZJS')} "
+                f"XDJS={latest_daban.get('XDJS')} "
+                f"PPJS={latest_daban.get('PPJS')} "
+                f"tZhangTing={latest_daban.get('tZhangTing')} "
+                f"tDieTing={latest_daban.get('tDieTing')} "
+                f"tFengBan={latest_daban.get('tFengBan')} "
+                f"qscln={latest_daban.get('qscln')}"
+            )
     else:
-        details.append(
-            "最新主值快照: "
-            f"ZHQD={latest_daban.get('ZHQD')} "
-            f"SZJS={latest_daban.get('SZJS')} "
-            f"XDJS={latest_daban.get('XDJS')} "
-            f"PPJS={latest_daban.get('PPJS')} "
-            f"tZhangTing={latest_daban.get('tZhangTing')} "
-            f"tDieTing={latest_daban.get('tDieTing')} "
-            f"tFengBan={latest_daban.get('tFengBan')} "
-            f"qscln={latest_daban.get('qscln')}"
-        )
+        if not latest_snapshot:
+            ok = False
+            details.append(f"未找到页面关键字段: {', '.join(page_spec.expected_keys)}")
+        else:
+            details.append(f"页面关键字段命中: {', '.join([key for key in page_spec.expected_keys if key in latest_snapshot])}")
+
+    if selected_snapshot:
         details.append(
             "selected_snapshot: "
             f"raw_ts={selected_snapshot.get('raw_ts', '')} "
@@ -161,7 +219,7 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             f"reason={selected_snapshot.get('reason', '')}"
         )
 
-    required_events = {"launch_app", "home_reached", "market_reached", "emotion_reached", "request_captured", "report_written", "run_written"}
+    required_events = set(page_spec.required_events)
     seen_events = {event.get("name", "") for event in getattr(result, "step_events", []) or []}
     missing_events = sorted(required_events - seen_events)
     if missing_events:

@@ -17,6 +17,7 @@ import shutil
 
 from src import config
 from src.apps.kaipanla.manifest import build_stub_manifest
+from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.report import write_run_report
 from src.apps.kaipanla.task import RunResult, TaskSpec
 from src.controller.device import PreflightError, clear_proxy, configure_proxy, connect_device, launch_app, preflight_check
@@ -108,37 +109,36 @@ class KaipanlaRunner:
         self._record_step(result, "launch_app", f"{self.task.package_name} {self.task.launch_activity}")
 
     def _run_task(self, result: RunResult) -> None:
-        if self.task.page == "market_emotion":
-            self._run_market_emotion(result)
-            return
-        raise ValueError(f"暂不支持的页面任务: {self.task.page}")
+        spec = get_page_spec(self.task.page)
+        self._run_navigation(result, spec.navigation_steps)
 
-    def _run_market_emotion(self, result: RunResult) -> None:
+    def _run_navigation(self, result: RunResult, steps: list[dict]) -> None:
         d = self.device
-
-        # 先回到可控起点，再点击“行情”进入目标区域。
-        for _ in range(3):
-            try:
-                d.press("back")
-                time.sleep(0.8)
-            except Exception:
-                break
-
-        if not self._click_text(d, "首页", timeout=2):
-            self._tap_center_fallback(d)
-        self._record_step(result, "home_reached", "首页")
-        time.sleep(1.0)
-        self._click_text(d, "行情", timeout=3)
-        self._record_step(result, "market_reached", "行情")
-        time.sleep(2.0)
-        self._click_text(d, "情绪", timeout=3)
-        self._record_step(result, "emotion_reached", "情绪")
-        time.sleep(2.0)
-
-        # 轻微滚动，推动页面把更多数据项请求出来。
-        for _ in range(2):
-            d.swipe(d.window_size()[0] // 2, int(d.window_size()[1] * 0.75), d.window_size()[0] // 2, int(d.window_size()[1] * 0.40), duration=0.25)
-            time.sleep(1.0)
+        for step in steps:
+            action = step.get("action")
+            if action == "back":
+                for _ in range(int(step.get("times", 1))):
+                    try:
+                        d.press("back")
+                        time.sleep(float(step.get("sleep", 0.8)))
+                    except Exception:
+                        break
+            elif action == "tap_text":
+                self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0)))
+            elif action == "tap_text_or_fallback":
+                if not self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0))):
+                    self._tap_center_fallback(d)
+            elif action == "record":
+                self._record_step(result, str(step.get("name", "step")), str(step.get("detail", "")))
+            elif action == "sleep":
+                time.sleep(float(step.get("seconds", 1.0)))
+            elif action == "swipe_up":
+                for _ in range(int(step.get("times", 1))):
+                    width, height = d.window_size()
+                    d.swipe(width // 2, int(height * 0.75), width // 2, int(height * 0.40), duration=0.25)
+                    time.sleep(float(step.get("sleep", 1.0)))
+            else:
+                raise ValueError(f"unsupported navigation action: {action}")
 
     def _start_proxy(self) -> None:
         manifest = build_stub_manifest()
