@@ -4,6 +4,7 @@
 用于 assistant-directed exploration：
 - 不要求先有正式注册页面
 - 重点是产生候选页面证据、候选关键字段和沉淀建议
+- 这里做的是“预判器”，不是最终裁判
 """
 
 from __future__ import annotations
@@ -33,8 +34,39 @@ class ExplorationResult:
         return asdict(self)
 
 
+TARGET_SIGNAL_HINTS = {
+    "dragon_tiger": {
+        "aliases": ["龙虎榜", "龙虎", "dragon_tiger", "dragon tiger"],
+        "positive_keys": ["LongHuBang", "DragonTigerList", "DragonTiger", "LongHu", "List"],
+        "negative_keys": ["DaBanList", "CWeatherVaneList", "BaceFaceList", "MsgTop", "TCop"],
+        "navigation_events": ["dragon_tiger_reached"],
+        "recommended_page_name": "dragon_tiger",
+    },
+    "market_radar": {
+        "aliases": ["盘中雷达", "雷达", "market_radar"],
+        "positive_keys": ["DongXiang"],
+        "negative_keys": ["DaBanList", "BaceFaceList", "MsgTop", "TCop"],
+        "navigation_events": ["radar_reached"],
+        "recommended_page_name": "market_radar",
+    },
+    "market_featured": {
+        "aliases": ["精选", "market_featured", "featured"],
+        "positive_keys": ["Topic", "Theme", "List"],
+        "negative_keys": ["DaBanList", "DongXiang", "MsgTop", "TCop"],
+        "navigation_events": ["featured_reached"],
+        "recommended_page_name": "market_featured",
+    },
+    "market_emotion": {
+        "aliases": ["情绪", "market_emotion", "emotion"],
+        "positive_keys": ["DaBanList", "BaceFaceList", "CWeatherVaneList", "PHBList", "JJXTList"],
+        "negative_keys": ["LongHuBang", "DragonTigerList", "DongXiang", "MsgTop", "TCop"],
+        "navigation_events": ["emotion_reached"],
+        "recommended_page_name": "market_emotion",
+    },
+}
+
 NOISE_KEYS = {
-    "Ad_1", "Ad_2", "Ad_4", "Ad_5", "IndexAd", "List", "errcode", "t", "time"
+    "Ad_1", "Ad_2", "Ad_4", "Ad_5", "IndexAd", "errcode", "t", "time", "pathId", "publishId", "pathUrl", "revert", "new", "Index", "Mod", "ViewTop"
 }
 
 
@@ -58,26 +90,70 @@ def _iter_raw_records(raw_paths: list[str] | None):
                 yield rec, data
 
 
-def _target_words(target_hint: str) -> list[str]:
+def _resolve_target_profile(target_hint: str) -> tuple[str, dict]:
     text = (target_hint or "").strip().lower()
-    mapping = {
-        "龙虎榜": ["longhubang", "dragon", "longhu", "龙虎", "席位", "上榜", "买入", "卖出"],
-        "盘中雷达": ["dongxiang", "雷达", "异动", "动向"],
-        "精选": ["topic", "theme", "精选", "题材", "主题"],
-        "情绪": ["daban", "zhqd", "情绪", "涨停", "炸板"],
+    for name, profile in TARGET_SIGNAL_HINTS.items():
+        aliases = [alias.lower() for alias in profile.get("aliases", [])]
+        if any(alias and alias in text for alias in aliases):
+            return name, profile
+    return "generic", {
+        "aliases": [text],
+        "positive_keys": [],
+        "negative_keys": [],
+        "navigation_events": [],
+        "recommended_page_name": "",
     }
-    for key, words in mapping.items():
-        if key in target_hint:
-            return words
-    return [part for part in text.replace("_", " ").split() if part]
+
+
+def _score_key(key: str, count: int, profile: dict, navigation_reached: list[str]) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    lowered = key.lower()
+
+    if key in profile.get("positive_keys", []):
+        score += 6
+        reasons.append("positive_key_exact")
+    elif any(token.lower() in lowered for token in profile.get("positive_keys", []) if token):
+        score += 4
+        reasons.append("positive_key_partial")
+
+    if key in profile.get("negative_keys", []):
+        score -= 5
+        reasons.append("negative_key")
+
+    if key in NOISE_KEYS:
+        score -= 4
+        reasons.append("known_noise")
+
+    if count >= 3:
+        score += 2
+        reasons.append("repeated")
+    elif count >= 1:
+        score += 1
+        reasons.append("seen")
+
+    if key.endswith("List"):
+        score += 1
+        reasons.append("list_shape")
+
+    if any(event in navigation_reached for event in profile.get("navigation_events", [])):
+        score += 2
+        reasons.append("target_navigation_reached")
+
+    return score, reasons
 
 
 def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> ExplorationResult:
     key_counter: Counter[str] = Counter()
     signal_counter: Counter[str] = Counter()
     matched_records = 0
-    target_words = _target_words(target_hint)
     matched_examples: list[dict] = []
+    navigation_reached = [
+        event.get("name", "")
+        for event in (run.step_events or [])
+        if event.get("name", "").endswith("_reached")
+    ]
+    target_name, profile = _resolve_target_profile(target_hint)
 
     for rec, data in _iter_raw_records(run.raw_paths):
         keys = list(data.keys())
@@ -85,8 +161,7 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
 
         matched = []
         for key in keys:
-            lowered = key.lower()
-            if any(word and word in lowered for word in target_words):
+            if key in profile.get("positive_keys", []):
                 matched.append(key)
         if matched:
             matched_records += 1
@@ -102,34 +177,39 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
                     }
                 )
 
-    candidate_keys = [key for key, _ in signal_counter.most_common(8)]
-    if not candidate_keys:
-        candidate_keys = [key for key, _ in key_counter.most_common(12) if key not in NOISE_KEYS][:8]
+    scored_keys: list[tuple[str, int, list[str], int]] = []
+    for key, count in key_counter.items():
+        score, reasons = _score_key(key, count, profile, navigation_reached)
+        scored_keys.append((key, score, reasons, count))
+    scored_keys.sort(key=lambda item: (-item[1], -item[3], item[0]))
 
-    likely_noise_keys = [key for key, _ in key_counter.most_common(12) if key in NOISE_KEYS][:6]
-    navigation_reached = [
-        event.get("name", "")
-        for event in (run.step_events or [])
-        if event.get("name", "").endswith("_reached")
-    ]
+    candidate_keys = [key for key, score, _, _ in scored_keys if score > 0][:8]
+    likely_noise_keys = [key for key, score, _, _ in scored_keys if score <= -2][:8]
 
-    if matched_records >= 1 and candidate_keys:
+    readiness_score = 0
+    readiness_reasons: list[str] = []
+    if matched_records >= 1:
+        readiness_score += 3
+        readiness_reasons.append("matched_positive_records")
+    if any(event in navigation_reached for event in profile.get("navigation_events", [])):
+        readiness_score += 2
+        readiness_reasons.append("target_navigation_reached")
+    if len(candidate_keys) >= 2:
+        readiness_score += 2
+        readiness_reasons.append("multiple_candidate_keys")
+    if len(likely_noise_keys) <= max(1, len(candidate_keys) // 2):
+        readiness_score += 1
+        readiness_reasons.append("noise_under_control")
+
+    if readiness_score >= 6 and matched_records >= 1:
         status = "ready_to_promote"
-        recommendation = "已找到候选页面证据，可进入沉淀评估。"
-    elif candidate_keys:
+        recommendation = "已命中目标页面主块且导航稳定，可进入沉淀评估。"
+    elif candidate_keys and matched_records >= 1:
         status = "candidate_found"
-        recommendation = "已找到部分候选字段，建议继续补导航或缩小目标范围。"
+        recommendation = "已识别到候选主块，但仍存在噪声或目标证据不足，建议继续观察。"
     else:
-        status = "request_not_found"
-        recommendation = "尚未识别到明显候选字段，建议复查页面入口或抓包范围。"
-
-    recommended_page_name = ""
-    if "龙虎榜" in target_hint:
-        recommended_page_name = "dragon_tiger"
-    elif "雷达" in target_hint:
-        recommended_page_name = "market_radar"
-    elif "精选" in target_hint:
-        recommended_page_name = "market_featured"
+        status = "not_ready"
+        recommendation = "尚未形成可靠候选主块，建议复查导航入口或抓包范围。"
 
     return ExplorationResult(
         task_id=task_id,
@@ -140,12 +220,19 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
         navigation_reached=navigation_reached,
         likely_noise_keys=likely_noise_keys,
         recommendation=recommendation,
-        recommended_page_name=recommended_page_name,
+        recommended_page_name=profile.get("recommended_page_name", "") if target_name != "generic" else "",
         evidence={
             "matched_examples": matched_examples,
             "top_keys": key_counter.most_common(20),
             "signal_keys": signal_counter.most_common(20),
             "captured_count": run.captured_count,
             "parsed_count": run.parsed_count,
+            "target_profile": target_name,
+            "readiness_score": readiness_score,
+            "readiness_reasons": readiness_reasons,
+            "scored_keys": [
+                {"key": key, "score": score, "reasons": reasons, "count": count}
+                for key, score, reasons, count in scored_keys[:12]
+            ],
         },
     )
