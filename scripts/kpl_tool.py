@@ -29,11 +29,11 @@ def _load_task(task_path: str | None, preset: str | None = None) -> TaskSpec:
 
 
 def _load_exploration_task(text: str, preset: str | None = None) -> TaskSpec:
-    parsed = parse_nl_request(text, default_preset=preset or "market_emotion")
+    chosen = preset or "market_emotion"
     return TaskSpec.for_exploration(
         text,
-        page=parsed.get("preset") or preset or "market_emotion",
-        preset=parsed.get("preset") or preset or "market_emotion",
+        page=chosen,
+        preset=chosen,
     )
 
 
@@ -292,8 +292,6 @@ def cmd_latest(args) -> dict:
         "task": task.to_dict() if task else None,
         "task_meta": _task_meta(task, used_default_preset=used_default_preset),
     }
-    if task:
-        payload["page_summary"] = build_page_summary(task, run)
     return payload
 
 
@@ -328,16 +326,11 @@ def cmd_explore(args) -> dict:
             **_task_meta(task, used_default_preset=False),
             "mode": "exploration",
         },
-        "loop_policy": {
+        "runtime_policy": {
             "max_rounds": max_rounds,
-            "auto_adjustments": [
-                "tighten_target_hint",
-                "narrow_goal_scope",
-            ],
-            "ask_human_when": [
-                "self_proof_blockers_persist",
-                "evidence_does_not_improve",
-            ],
+            "semantic_routing": False,
+            "semantic_adjustment": False,
+            "ai_must_decide_next_step": True,
         },
     }
     if not args.execute:
@@ -384,12 +377,9 @@ def cmd_explore(args) -> dict:
 
     payload["rounds"] = rounds
     payload["run"] = final_run.to_dict() if final_run else None
-    payload["page_summary"] = build_page_summary(task, final_run) if final_run else None
     payload["exploration"] = final_exploration.to_dict() if final_exploration else None
-    payload["ask_human"] = ask_human
-    if ask_human:
-        payload["ask_human_reason"] = "自动探索已到停点或证据未明显改善，需人工确认目标范围后再继续。"
-        payload["ask_human_question"] = "你要锁定的是页面主列表/主块，还是页面内任意相关数据？"
+    payload["runtime_stop_reason"] = "evidence_bundle_collected" if final_exploration and final_exploration.evidence_status == "evidence_complete" else ("max_rounds_reached" if ask_human else "incomplete")
+    payload["requires_ai_decision"] = True
     payload["ok"] = bool(final_run and final_run.status in ("success", "partial"))
     return payload
 

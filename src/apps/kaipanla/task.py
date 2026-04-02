@@ -93,16 +93,17 @@ class TaskSpec:
                 "goal": f"探索抓取目标：{target_hint}",
                 "target_hint": target_hint,
                 "success_criteria": [
-                    "find_candidate_keys",
-                    "produce_exploration_summary",
+                    "collect_evidence_bundle",
+                    "persist_exploration_artifacts",
                 ],
-                "output": ["run", "report", "exploration_summary"],
-                "interpretation_style": "exploration",
+                "output": ["run", "report", "evidence_bundle"],
+                "interpretation_style": "evidence_bundle",
                 "notes": list(base.get("notes", [])) + [
                     f"探索目标: {target_hint}",
                     f"navigation_hint: {navigation_hint}" if navigation_hint else "navigation_hint: <none>",
+                    "runtime_role: execution_only",
                 ],
-                "next_action_hint": "根据 exploration_summary 判断是否沉淀为 registered page",
+                "next_action_hint": "由 AI 基于 evidence bundle 决定下一步动作",
             }
         )
         return cls(**base)

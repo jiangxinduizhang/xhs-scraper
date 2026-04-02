@@ -148,7 +148,8 @@ def test_kpl_tool_explore_dry_run(capsys):
     assert payload["command"] == "explore"
     assert payload["task"]["mode"] == "exploration"
     assert payload["execute"] is False
-    assert payload["loop_policy"]["max_rounds"] == 2
+    assert payload["runtime_policy"]["max_rounds"] == 2
+    assert payload["runtime_policy"]["ai_must_decide_next_step"] is True
 
 
 def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
@@ -198,5 +199,6 @@ def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
     payload = _load_stdout(capsys)
 
     assert code == 0
-    assert payload["ask_human"] is False
+    assert payload["requires_ai_decision"] is True
+    assert payload["runtime_stop_reason"] == "evidence_bundle_collected"
     assert len(payload["rounds"]) == 1
