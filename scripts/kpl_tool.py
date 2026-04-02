@@ -27,9 +27,36 @@ def _load_task(task_path: str | None, preset: str | None = None) -> TaskSpec:
     return TaskSpec.for_preset(preset)
 
 
-def _load_exploration_task(text: str, preset: str | None = None) -> TaskSpec:
+def _parse_action_plan(action_plan: str | None) -> list[dict]:
+    if not action_plan:
+        return []
+    data = json.loads(action_plan)
+    if not isinstance(data, list):
+        raise ValueError("action_plan must be a JSON list")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _load_exploration_task(
+    text: str,
+    preset: str | None = None,
+    *,
+    navigation_hint: str = "",
+    round_index: int = 1,
+    max_rounds: int = 1,
+    session_id: str = "",
+    action_plan: list[dict] | None = None,
+    capture_options: dict | None = None,
+) -> TaskSpec:
     chosen = preset or "market_emotion"
-    return TaskSpec.for_exploration(text, page=chosen, preset=chosen)
+    task = TaskSpec.for_exploration(text, page=chosen, preset=chosen, navigation_hint=navigation_hint)
+    task.round_index = max(1, int(round_index or 1))
+    task.max_rounds = max(1, int(max_rounds or 1))
+    task.session_id = session_id or ""
+    if action_plan:
+        task.action_plan = list(action_plan)
+    if capture_options:
+        task.capture_options.update(capture_options)
+    return task
 
 
 def _task_meta(task: TaskSpec, *, used_default_preset: bool = False) -> dict:
@@ -211,7 +238,22 @@ def cmd_status(args) -> dict:
 
 
 def cmd_explore(args) -> dict:
-    task = _load_exploration_task(args.text, args.preset)
+    capture_options = {
+        "screenshot_before_after": not bool(getattr(args, "no_screenshot", False)),
+        "ui_dump_before_after": not bool(getattr(args, "no_ui_dump", False)),
+        "visible_text_before_after": not bool(getattr(args, "no_visible_text", False)),
+        "focus_post_action_window": not bool(getattr(args, "no_focus_post_action_window", False)),
+    }
+    task = _load_exploration_task(
+        args.text,
+        args.preset,
+        navigation_hint=getattr(args, "navigation_hint", "") or "",
+        round_index=getattr(args, "round_index", 1) or 1,
+        max_rounds=getattr(args, "max_rounds", 2) or 2,
+        session_id=getattr(args, "session_id", "") or "",
+        action_plan=_parse_action_plan(getattr(args, "action_plan", None)),
+        capture_options=capture_options,
+    )
     max_rounds = max(1, int(getattr(args, "max_rounds", 2) or 2))
     payload = {
         "ok": True,
@@ -310,7 +352,15 @@ def main(argv: list[str] | None = None) -> int:
     p_explore = sub.add_parser("explore", help="assistant-directed exploration")
     p_explore.add_argument("text", help="exploration target")
     p_explore.add_argument("--preset", default="market_emotion", help="explicit preset/page for exploration bootstrap")
+    p_explore.add_argument("--navigation-hint", default="", help="human/AI supplied navigation hint for this exploration round")
+    p_explore.add_argument("--round-index", type=int, default=1, help="exploration round index")
     p_explore.add_argument("--max-rounds", type=int, default=2, help="max execution rounds before handing control back to AI")
+    p_explore.add_argument("--session-id", default="", help="session identifier for multi-round exploration")
+    p_explore.add_argument("--action-plan", help="JSON list describing explicit action plan for this round")
+    p_explore.add_argument("--no-screenshot", action="store_true", help="disable screenshot before/after capture")
+    p_explore.add_argument("--no-ui-dump", action="store_true", help="disable UI dump before/after capture")
+    p_explore.add_argument("--no-visible-text", action="store_true", help="disable visible text before/after capture")
+    p_explore.add_argument("--no-focus-post-action-window", action="store_true", help="disable focus on post-action request window")
     p_explore.add_argument("--execute", action="store_true", help="actually execute the exploration task")
 
     args = parser.parse_args(argv)

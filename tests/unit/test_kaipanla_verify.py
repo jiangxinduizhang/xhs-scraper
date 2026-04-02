@@ -163,8 +163,9 @@ def test_verify_run_exploration_mode(tmp_path):
     verification = verify_run(run_path)
     assert verification.status == "evidence_complete"
     assert verification.flags["exploration_mode"] is True
-    assert verification.flags["has_observed_keys"] is True
-    assert verification.flags["evidence_complete"] is True
+    assert verification.flags["has_request_facts"] is True
+    assert verification.flags["has_structure_facts"] is True
+    assert verification.flags["has_artifact_facts"] is True
 
 
 def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
@@ -197,7 +198,8 @@ def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
     result.save(run_path)
 
     verification = verify_run(run_path)
-    assert verification.flags["has_observed_keys"] is True
+    assert verification.flags["has_request_facts"] is True
+    assert verification.flags["has_structure_facts"] is True
 
 
 def test_render_verification_summary():

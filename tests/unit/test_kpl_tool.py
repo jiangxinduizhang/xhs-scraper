@@ -138,6 +138,38 @@ def test_kpl_tool_explore_dry_run(capsys):
     assert payload["runtime_policy"]["ai_must_decide_next_step"] is True
 
 
+def test_kpl_tool_explore_dry_run_supports_round_control(capsys):
+    code = main([
+        "explore",
+        "探索抓取龙虎榜",
+        "--preset",
+        "dragon_tiger",
+        "--navigation-hint",
+        "优先检查底部固定栏",
+        "--round-index",
+        "2",
+        "--max-rounds",
+        "3",
+        "--session-id",
+        "sess-123",
+        "--action-plan",
+        '[{"action":"tap_text","target":"龙虎榜"}]',
+        "--no-screenshot",
+        "--no-focus-post-action-window",
+    ])
+    payload = _load_stdout(capsys)
+
+    assert code == 0
+    assert payload["task"]["page"] == "dragon_tiger"
+    assert payload["task"]["round_index"] == 2
+    assert payload["task"]["max_rounds"] == 3
+    assert payload["task"]["session_id"] == "sess-123"
+    assert payload["task"]["action_plan"][0]["target"] == "龙虎榜"
+    assert payload["task"]["capture_options"]["screenshot_before_after"] is False
+    assert payload["task"]["capture_options"]["focus_post_action_window"] is False
+    assert any("navigation_hint: 优先检查底部固定栏" in note for note in payload["task"]["notes"])
+
+
 def test_kpl_tool_explore_exec_returns_evidence_bundle(monkeypatch, capsys):
     def fake_run_task(task_obj):
         return RunResult(
