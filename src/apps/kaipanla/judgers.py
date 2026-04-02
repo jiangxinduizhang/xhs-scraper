@@ -16,12 +16,26 @@ HOME_FEED_HINTS = {
     "ETF基金",
     "功能介绍",
     "商品现货",
+    "风向标",
+    "涨停板复盘",
 }
 
 DRAGON_TIGER_PAGE_HINTS = {
     "龙虎榜",
     "实时龙虎榜",
     "上榜",
+    "龙虎",
+}
+
+STOCK_DATA_HINTS = {
+    "股票",
+    "代码",
+    "涨跌幅",
+    "成交额",
+    "买入",
+    "卖出",
+    "净额",
+    "个股",
 }
 
 INSTITUTION_HINTS = {
@@ -31,6 +45,8 @@ INSTITUTION_HINTS = {
     "净买入",
     "席位",
     "营业部",
+    "买一",
+    "卖一",
 }
 
 
@@ -63,12 +79,12 @@ class JudgementBundle:
 def _collect_visible_texts(result: ExplorationResult) -> list[str]:
     evidence = result.evidence or {}
     ui_facts = evidence.get("ui_facts") or {}
-    pairs = ui_facts.get("evidence_pairs") or []
+    pairs = ui_facts.get("pairs") or ui_facts.get("evidence_pairs") or []
     texts: list[str] = []
     for pair in pairs:
         for phase in ("before", "after"):
-            payload = (pair.get(phase) or {}).get("visible_text") or {}
-            values = payload.get("texts") or []
+            payload = pair.get(phase) or {}
+            values = payload.get("visible_text") or []
             texts.extend(str(v) for v in values if isinstance(v, (str, int, float)))
     return texts
 
@@ -85,6 +101,8 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
     structure_facts = evidence.get("structure_facts") or {}
     raw_record_count = int(request_facts.get("raw_record_count") or 0)
     candidates = structure_facts.get("candidate_structures") or []
+    observed_keys = [str(x) for x in (structure_facts.get("observed_keys") or [])]
+    key_names = {str(item.get("name", "")) for item in candidates if isinstance(item, dict)}
 
     judgements: list[Judgement] = []
 
@@ -102,27 +120,43 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
         )
 
     dragon_hits = _contains_any(texts, DRAGON_TIGER_PAGE_HINTS)
-    if dragon_hits:
+    dragon_key_hits = sorted([key for key in observed_keys if "dragon" in key.lower() or "tiger" in key.lower() or "longhu" in key.lower()])
+    if dragon_hits or dragon_key_hits:
         judgements.append(
             Judgement(
                 source="code_judger",
                 label="dragon_tiger_related_surface",
                 confidence="medium",
-                reason="证据里出现了龙虎榜相关文本，但这只能说明接近目标区域，不能单独证明已命中核心数据块。",
-                matched_signals=dragon_hits[:6],
+                reason="证据里出现了龙虎榜相关文本或结构线索，但这只能说明接近目标区域，不能单独证明已命中核心数据块。",
+                matched_signals=(dragon_hits + dragon_key_hits)[:6],
                 user_summary="已经出现龙虎榜相关线索，但还不能只凭这些线索宣称抓到目标主块。",
             )
         )
 
+    stock_hits = _contains_any(texts, STOCK_DATA_HINTS)
+    stock_key_hits = sorted([key for key in observed_keys if key in {"code", "name", "buy", "sell", "net", "amount"}])
+    if stock_hits or stock_key_hits:
+        judgements.append(
+            Judgement(
+                source="code_judger",
+                label="stock_data_candidate",
+                confidence="medium",
+                reason="当前证据中出现了更像个股/榜单数据的文本或字段线索，但还需要进一步确认是否真的是龙虎榜股票数据。",
+                matched_signals=(stock_hits + stock_key_hits)[:6],
+                user_summary="已经出现一些更像股票榜单的数据线索，可以继续验证是否进入龙虎榜股票数据区域。",
+            )
+        )
+
     institution_hits = _contains_any(texts, INSTITUTION_HINTS)
-    if institution_hits:
+    institution_key_hits = sorted([key for key in key_names if "seat" in key.lower() or "broker" in key.lower() or "institution" in key.lower()])
+    if institution_hits or institution_key_hits:
         judgements.append(
             Judgement(
                 source="code_judger",
                 label="institution_data_candidate",
                 confidence="medium",
-                reason="可见文本已出现机构/席位相关词，说明当前证据开始接近机构数据目标。",
-                matched_signals=institution_hits[:6],
+                reason="可见文本或结构字段已出现机构/席位相关词，说明当前证据开始接近机构数据目标。",
+                matched_signals=(institution_hits + institution_key_hits)[:6],
                 user_summary="已经看到一些机构/席位相关线索，可以优先验证是否进入机构数据区域。",
             )
         )
@@ -140,9 +174,9 @@ def judge_exploration(result: ExplorationResult) -> JudgementBundle:
             )
         )
 
-    primary = judgements[0]
     priority = {
-        "institution_data_candidate": 4,
+        "institution_data_candidate": 5,
+        "stock_data_candidate": 4,
         "dragon_tiger_related_surface": 3,
         "home_feed_dominant": 2,
         "judger_insufficient": 1,
