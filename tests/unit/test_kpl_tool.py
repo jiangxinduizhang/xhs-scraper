@@ -1,6 +1,4 @@
 import json
-from pathlib import Path
-from types import SimpleNamespace
 
 from scripts.kpl_tool import main
 from src.apps.kaipanla.task import RunResult, TaskSpec
@@ -28,7 +26,7 @@ def test_kpl_tool_capture_emits_json(tmp_path, monkeypatch, capsys):
             raw_paths=["data/raw/20260331.jsonl"],
             db_path="data/kaipanla.db",
             report_path="reports/demo.md",
-            next_action="继续抓行情页其他标签",
+            next_action="",
         )
 
     monkeypatch.setattr("scripts.kpl_tool.run_task", fake_run_task)
@@ -58,9 +56,9 @@ def test_kpl_tool_verify_emits_json(tmp_path, monkeypatch, capsys):
         report_path="reports/demo.md",
         step_events=[
             {"name": "launch_app", "at": "2026-03-31T17:16:53"},
-            {"name": "home_reached", "at": "2026-03-31T17:16:54"},
-            {"name": "market_reached", "at": "2026-03-31T17:16:55"},
-            {"name": "emotion_reached", "at": "2026-03-31T17:16:56"},
+            {"name": "entered_home_tab", "at": "2026-03-31T17:16:54"},
+            {"name": "entered_market_tab", "at": "2026-03-31T17:16:55"},
+            {"name": "tap_emotion_tab", "at": "2026-03-31T17:16:56"},
             {"name": "request_captured", "at": "2026-03-31T17:16:57"},
             {"name": "report_written", "at": "2026-03-31T17:16:58"},
             {"name": "run_written", "at": "2026-03-31T17:16:59"},
@@ -72,7 +70,7 @@ def test_kpl_tool_verify_emits_json(tmp_path, monkeypatch, capsys):
         "scripts.kpl_tool.verify_run",
         lambda run_arg, task_arg=None: VerificationResult(
             task_id=task.task_id,
-            status="verified",
+            status="artifacts_complete",
             checks=["report.md 已生成"],
             details=["步骤时间线完整"],
         ),
@@ -84,19 +82,7 @@ def test_kpl_tool_verify_emits_json(tmp_path, monkeypatch, capsys):
     assert code == 0
     assert payload["ok"] is True
     assert payload["command"] == "verify"
-    assert payload["verification"]["status"] == "verified"
-
-
-def test_kpl_tool_ask_routes_registered_pages():
-    from scripts.kpl_tool import parse_nl_request
-
-    radar = parse_nl_request("抓取盘中雷达")
-    featured = parse_nl_request("抓取精选数据")
-    dragon = parse_nl_request("抓取龙虎榜")
-
-    assert radar["preset"] == "market_radar"
-    assert featured["preset"] == "market_featured"
-    assert dragon["preset"] == "dragon_tiger"
+    assert payload["verification"]["status"] == "artifacts_complete"
 
 
 def test_kpl_tool_latest_and_status(tmp_path, monkeypatch, capsys):
@@ -122,7 +108,7 @@ def test_kpl_tool_latest_and_status(tmp_path, monkeypatch, capsys):
         "scripts.kpl_tool.verify_run",
         lambda run_arg, task_arg=None: VerificationResult(
             task_id=task.task_id,
-            status="verified",
+            status="artifacts_complete",
             checks=[],
             details=["步骤时间线完整"],
         ),
@@ -137,7 +123,7 @@ def test_kpl_tool_latest_and_status(tmp_path, monkeypatch, capsys):
     status_payload = _load_stdout(capsys)
     assert code == 0
     assert status_payload["ok"] is True
-    assert status_payload["verification"]["status"] == "verified"
+    assert status_payload["verification"]["status"] == "artifacts_complete"
 
 
 def test_kpl_tool_explore_dry_run(capsys):
@@ -152,19 +138,16 @@ def test_kpl_tool_explore_dry_run(capsys):
     assert payload["runtime_policy"]["ai_must_decide_next_step"] is True
 
 
-def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
-    task_ids = []
-
+def test_kpl_tool_explore_exec_returns_evidence_bundle(monkeypatch, capsys):
     def fake_run_task(task_obj):
-        task_ids.append(task_obj.task_id)
         return RunResult(
             task_id=task_obj.task_id,
             status="success",
             captured_count=1,
             parsed_count=1,
             step_events=[
-                {"name": "market_reached", "at": "2026-04-02T12:00:00"},
-                {"name": "dragon_tiger_reached", "at": "2026-04-02T12:00:01"},
+                {"name": "entered_market_tab", "at": "2026-04-02T12:00:00"},
+                {"name": "tap_dragon_tiger_tab", "at": "2026-04-02T12:00:01"},
             ],
         )
 
@@ -174,7 +157,7 @@ def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
         "evidence_status": "evidence_complete",
         "status": "evidence_complete",
         "observed_keys": ["List", "DaBanList"],
-        "navigation_events": ["market_reached", "dragon_tiger_reached"],
+        "navigation_events": ["entered_market_tab", "tap_dragon_tiger_tab"],
         "raw_record_count": 1,
         "observed_paths": ["/w1/api/index.php"],
         "evidence": {},
@@ -192,7 +175,6 @@ def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
             return fake_exploration
 
     monkeypatch.setattr("scripts.kpl_tool.run_task", fake_run_task)
-    monkeypatch.setattr("scripts.kpl_tool.build_page_summary", lambda task, run: {"kind": "exploration"})
     monkeypatch.setattr("scripts.kpl_tool.build_exploration_result", lambda *args, **kwargs: FakeExploration())
 
     code = main(["explore", "探索抓取龙虎榜", "--execute", "--max-rounds", "2"])
@@ -202,3 +184,12 @@ def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
     assert payload["requires_ai_decision"] is True
     assert payload["runtime_stop_reason"] == "evidence_bundle_collected"
     assert len(payload["rounds"]) == 1
+
+
+def test_kpl_tool_has_no_ask_command():
+    try:
+        main(["ask", "抓取龙虎榜"])
+    except SystemExit as exc:
+        assert exc.code != 0
+    else:
+        raise AssertionError("ask command should not be available")

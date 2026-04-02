@@ -30,7 +30,7 @@ def test_run_navigation_executes_registered_steps(monkeypatch):
     runner._run_task(result)
 
     event_names = [event["name"] for event in result.step_events]
-    assert "radar_reached" in event_names
+    assert "tap_radar_tab" in event_names
     assert any(action[0] == "press" for action in dummy.actions)
     assert any(action[0] == "swipe" for action in dummy.actions)
 

@@ -37,7 +37,7 @@ def test_verify_run_success(tmp_path):
     ])
 
     raw_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path.write_text('{"path":"/w1/api/index.php","data":{"BaceFaceList":[],"DaBanList":{"ZHQD":35,"SZJS":3200,"XDJS":1200,"PPJS":50,"tZhangTing":53,"tDieTing":1,"tFengBan":75.7143,"qscln":123456789},"Day":"2026-03-31","Time":1774944000}}\\n', encoding="utf-8")
+    raw_path.write_text('{"path":"/w1/api/index.php","data":{"BaceFaceList":[],"DaBanList":{"ZHQD":35,"SZJS":3200,"XDJS":1200,"PPJS":50,"tZhangTing":53,"tDieTing":1,"tFengBan":75.7143,"qscln":123456789},"Day":"2026-03-31","Time":1774944000}}\n', encoding="utf-8")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("report", encoding="utf-8")
 
@@ -49,9 +49,9 @@ def test_verify_run_success(tmp_path):
         report_path=str(report_path),
         step_events=[
             {"name": "launch_app", "detail": "com.aiyu.kaipanla", "at": "2026-03-31T16:00:00"},
-            {"name": "home_reached", "detail": "首页", "at": "2026-03-31T16:00:01"},
-            {"name": "market_reached", "detail": "行情", "at": "2026-03-31T16:00:02"},
-            {"name": "emotion_reached", "detail": "情绪", "at": "2026-03-31T16:00:03"},
+            {"name": "entered_home_tab", "detail": "首页", "at": "2026-03-31T16:00:01"},
+            {"name": "entered_market_tab", "detail": "行情", "at": "2026-03-31T16:00:02"},
+            {"name": "tap_emotion_tab", "detail": "情绪", "at": "2026-03-31T16:00:03"},
             {"name": "request_captured", "detail": "5", "at": "2026-03-31T16:00:10"},
             {"name": "report_written", "detail": str(report_path), "at": "2026-03-31T16:00:11"},
             {"name": "run_written", "detail": str(run_path), "at": "2026-03-31T16:00:12"},
@@ -62,12 +62,11 @@ def test_verify_run_success(tmp_path):
     verification = verify_run(run_path)
 
     assert "report.md 已生成" in verification.checks
-    assert any("market_sentiment 记录数" in item for item in verification.details)
-    assert len(verification.details) >= 1
-    assert verification.status in {"verified", "needs_attention"}
+    assert any("db.note_count" in item for item in verification.details)
+    assert verification.status == "artifacts_complete"
 
 
-def test_verify_run_generic_page_success(tmp_path):
+def test_verify_run_registered_page_is_artifact_focused(tmp_path):
     db_path = tmp_path / "kaipanla.db"
     task = TaskSpec.for_preset("market_radar")
     task.db_path = str(db_path)
@@ -112,9 +111,9 @@ def test_verify_run_generic_page_success(tmp_path):
         report_path=str(report_path),
         step_events=[
             {"name": "launch_app", "detail": "com.aiyu.kaipanla", "at": "2026-04-02T10:00:00"},
-            {"name": "home_reached", "detail": "首页", "at": "2026-04-02T10:00:01"},
-            {"name": "market_reached", "detail": "行情", "at": "2026-04-02T10:00:02"},
-            {"name": "radar_reached", "detail": "盘中雷达", "at": "2026-04-02T10:00:03"},
+            {"name": "entered_home_tab", "detail": "首页", "at": "2026-04-02T10:00:01"},
+            {"name": "entered_market_tab", "detail": "行情", "at": "2026-04-02T10:00:02"},
+            {"name": "tap_radar_tab", "detail": "盘中雷达", "at": "2026-04-02T10:00:03"},
             {"name": "request_captured", "detail": "1", "at": "2026-04-02T10:00:04"},
             {"name": "report_written", "detail": str(report_path), "at": "2026-04-02T10:00:05"},
             {"name": "run_written", "detail": str(run_path), "at": "2026-04-02T10:00:06"},
@@ -123,8 +122,8 @@ def test_verify_run_generic_page_success(tmp_path):
     result.save(run_path)
 
     verification = verify_run(run_path)
-    assert verification.status == "verified"
-    assert any("页面关键字段命中" in item for item in verification.details)
+    assert verification.status == "artifacts_complete"
+    assert any("latest_raw.keys" in item for item in verification.details)
 
 
 def test_verify_run_exploration_mode(tmp_path):
@@ -154,9 +153,9 @@ def test_verify_run_exploration_mode(tmp_path):
         report_path=str(report_path),
         step_events=[
             {"name": "launch_app", "detail": "com.aiyu.kaipanla", "at": "2026-04-02T11:00:00"},
-            {"name": "home_reached", "detail": "首页", "at": "2026-04-02T11:00:01"},
-            {"name": "market_reached", "detail": "行情", "at": "2026-04-02T11:00:02"},
-            {"name": "dragon_tiger_reached", "detail": "龙虎榜", "at": "2026-04-02T11:00:03"},
+            {"name": "entered_home_tab", "detail": "首页", "at": "2026-04-02T11:00:01"},
+            {"name": "entered_market_tab", "detail": "行情", "at": "2026-04-02T11:00:02"},
+            {"name": "tap_dragon_tiger_tab", "detail": "龙虎榜", "at": "2026-04-02T11:00:03"},
         ],
     )
     result.save(run_path)
@@ -192,8 +191,8 @@ def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
         raw_paths=[str(raw_path)],
         report_path=str(report_path),
         step_events=[
-            {"name": "market_reached", "at": "2026-04-02T11:00:02"},
-            {"name": "dragon_tiger_reached", "at": "2026-04-02T11:00:03"},
+            {"name": "entered_market_tab", "at": "2026-04-02T11:00:02"},
+            {"name": "tap_dragon_tiger_tab", "at": "2026-04-02T11:00:03"},
         ],
     )
     result.save(run_path)
@@ -204,7 +203,5 @@ def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
 
 
 def test_render_verification_summary():
-    summary = render_verification_summary(
-        verify_run("missing.json")
-    )
+    summary = render_verification_summary(verify_run("missing.json"))
     assert "Status: missing" in summary

@@ -13,21 +13,17 @@ def test_task_spec_roundtrip(tmp_path):
     loaded = TaskSpec.load(task_path)
     assert loaded.task_id == task.task_id
     assert loaded.page == "market_emotion"
-    assert loaded.goal == "验证市场情绪页可稳定抓取并落库"
+    assert loaded.goal == "采集市场情绪页相关产物"
 
 
 def test_task_spec_supports_multiple_registered_pages():
     radar = TaskSpec.for_preset("market_radar")
     featured = TaskSpec.for_preset("market_featured")
-
-    assert radar.page == "market_radar"
-    assert radar.preset == "market_radar"
     dragon = TaskSpec.for_preset("dragon_tiger")
 
+    assert radar.page == "market_radar"
     assert featured.page == "market_featured"
-    assert featured.preset == "market_featured"
     assert dragon.page == "dragon_tiger"
-    assert dragon.preset == "dragon_tiger"
 
 
 def test_task_spec_supports_exploration_mode():
@@ -35,8 +31,9 @@ def test_task_spec_supports_exploration_mode():
 
     assert task.mode == "exploration"
     assert task.target_hint == "探索抓取龙虎榜"
-    assert "produce_exploration_summary" in task.success_criteria
-    assert "exploration_summary" in task.output
+    assert "collect_evidence_bundle" in task.success_criteria
+    assert "evidence_bundle" in task.output
+    assert "runtime_role: execution_only" in task.notes
 
 
 def test_run_result_roundtrip(tmp_path):
@@ -49,11 +46,11 @@ def test_run_result_roundtrip(tmp_path):
         note_type_counts={"market_emotion_summary": 1},
         step_events=[
             {"name": "launch_app", "detail": "com.aiyu.kaipanla", "at": "2026-03-31T16:00:00"},
-            {"name": "home_reached", "detail": "首页", "at": "2026-03-31T16:00:02"},
+            {"name": "entered_home_tab", "detail": "首页", "at": "2026-03-31T16:00:02"},
         ],
         raw_paths=["data/raw/20260331.jsonl"],
         db_path="data/kaipanla.db",
-        next_action="继续抓行情页其他标签",
+        next_action="",
     )
     run_path = tmp_path / "run.json"
     result.save(run_path)
@@ -76,11 +73,12 @@ def test_render_run_report_includes_stats():
         parsed_count=11,
         db_path="data/kaipanla.db",
         raw_paths=["data/raw/20260331.jsonl"],
-        next_action="继续抓行情页其他标签",
+        next_action="",
         source_counts={"market_sentiment": 11},
         note_type_counts={"market_emotion_summary": 1, "market_baceface": 4},
         step_events=[{"name": "launch_app", "detail": "com.aiyu.kaipanla", "at": "2026-03-31T16:00:00"}],
         error="",
+        report_path="reports/demo.md",
     )
 
     report = render_run_report(task, result)
@@ -88,5 +86,5 @@ def test_render_run_report_includes_stats():
     assert "状态: success" in report
     assert "market_sentiment: 11" in report
     assert "market_emotion_summary: 1" in report
-    assert "继续抓行情页其他标签" in report
+    assert "本报告展示的是执行与产物事实" in report
     assert "步骤时间线" in report

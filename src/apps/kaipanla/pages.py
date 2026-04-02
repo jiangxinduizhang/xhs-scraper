@@ -1,8 +1,7 @@
 """
 开盘啦页面注册表。
 
-把“页面定义 / 导航步骤 / 验真关键字段”从 runner 和 verify 中拆出来，
-支持任意已注册真实页面走统一任务框架。
+这里保存的是执行模板，不是页面语义判断规则。
 """
 
 from __future__ import annotations
@@ -19,11 +18,8 @@ class PageSpec:
     output: list[str] = field(default_factory=list)
     compare: str = "none"
     interpretation_style: str = "human_summary"
-    next_action_hint: str = ""
     notes: list[str] = field(default_factory=list)
     navigation_steps: list[dict] = field(default_factory=list)
-    expected_keys: list[str] = field(default_factory=list)
-    required_events: list[str] = field(default_factory=list)
 
 
 def _task_id(prefix: str) -> str:
@@ -33,116 +29,103 @@ def _task_id(prefix: str) -> str:
 PAGE_SPECS: dict[str, PageSpec] = {
     "market_emotion": PageSpec(
         name="market_emotion",
-        goal="验证市场情绪页可稳定抓取并落库",
+        goal="采集市场情绪页相关产物",
         modules=["emotion", "ranking", "money_flow", "themes"],
-        output=["run", "report", "market_summary", "day_compare"],
+        output=["run", "report", "market_summary"],
         compare="previous_trading_day",
-        interpretation_style="trader_recap",
-        next_action_hint="继续抓行情页其他标签",
+        interpretation_style="human_summary",
         notes=[
-            "当前默认预设任务是 market_emotion。",
-            "先保持最小闭环，不扩展多页面任务。",
-            "若抓取成功，优先输出可回读产物，再决定下一步。",
+            "执行模板只负责完成页面动作和产物采集。",
+            "页面语义解释与是否足够证明目标，由 AI 负责。",
         ],
         navigation_steps=[
             {"action": "back", "times": 3, "sleep": 0.8},
             {"action": "tap_text_or_fallback", "text": "首页", "timeout": 2},
-            {"action": "record", "name": "home_reached", "detail": "首页"},
+            {"action": "record", "name": "entered_home_tab", "detail": "首页"},
             {"action": "sleep", "seconds": 1.0},
             {"action": "tap_text", "text": "行情", "timeout": 3},
-            {"action": "record", "name": "market_reached", "detail": "行情"},
+            {"action": "record", "name": "entered_market_tab", "detail": "行情"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "tap_text", "text": "情绪", "timeout": 3},
-            {"action": "record", "name": "emotion_reached", "detail": "情绪"},
+            {"action": "record", "name": "tap_emotion_tab", "detail": "情绪"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "swipe_up", "times": 2, "sleep": 1.0},
         ],
-        expected_keys=["DaBanList", "BaceFaceList", "PHBList", "JJXTList", "ZQFKList"],
-        required_events=["launch_app", "home_reached", "market_reached", "emotion_reached", "request_captured", "report_written", "run_written"],
     ),
     "market_radar": PageSpec(
         name="market_radar",
-        goal="抓取行情 tab 页面盘中雷达数据并落盘",
+        goal="采集盘中雷达页相关产物",
         modules=["radar", "dongxiang"],
-        output=["run", "report", "page_summary"],
+        output=["run", "report", "evidence_bundle"],
         compare="none",
-        interpretation_style="human_summary",
-        next_action_hint="继续观察盘中雷达是否有新增信号",
+        interpretation_style="evidence_bundle",
         notes=[
-            "盘中雷达页以 DongXiang 类字段作为主要验真锚点。",
-            "若页面存在滚动加载，可适当增加 swipe。",
+            "执行模板只负责页面动作与取证。",
+            "不要把动作记录直接解释成页面已被语义确认。",
         ],
         navigation_steps=[
             {"action": "back", "times": 3, "sleep": 0.8},
             {"action": "tap_text_or_fallback", "text": "首页", "timeout": 2},
-            {"action": "record", "name": "home_reached", "detail": "首页"},
+            {"action": "record", "name": "entered_home_tab", "detail": "首页"},
             {"action": "sleep", "seconds": 1.0},
             {"action": "tap_text", "text": "行情", "timeout": 3},
-            {"action": "record", "name": "market_reached", "detail": "行情"},
+            {"action": "record", "name": "entered_market_tab", "detail": "行情"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "tap_text", "text": "盘中雷达", "timeout": 3},
-            {"action": "record", "name": "radar_reached", "detail": "盘中雷达"},
+            {"action": "record", "name": "tap_radar_tab", "detail": "盘中雷达"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "swipe_up", "times": 2, "sleep": 1.0},
         ],
-        expected_keys=["DongXiang"],
-        required_events=["launch_app", "home_reached", "market_reached", "radar_reached", "request_captured", "report_written", "run_written"],
     ),
     "market_featured": PageSpec(
         name="market_featured",
-        goal="抓取行情 tab 页面精选数据并落盘",
+        goal="采集精选页相关产物",
         modules=["featured", "topic", "theme"],
-        output=["run", "report", "page_summary"],
+        output=["run", "report", "evidence_bundle"],
         compare="none",
-        interpretation_style="human_summary",
-        next_action_hint="继续观察精选主题是否切换",
+        interpretation_style="evidence_bundle",
         notes=[
-            "精选页以 Topic / Theme / List 类字段作为主要验真锚点。",
-            "如果页面分模块切换明显，后续可继续细拆为子页面。",
+            "执行模板只负责页面动作与取证。",
+            "不要把动作记录直接解释成页面已被语义确认。",
         ],
         navigation_steps=[
             {"action": "back", "times": 3, "sleep": 0.8},
             {"action": "tap_text_or_fallback", "text": "首页", "timeout": 2},
-            {"action": "record", "name": "home_reached", "detail": "首页"},
+            {"action": "record", "name": "entered_home_tab", "detail": "首页"},
             {"action": "sleep", "seconds": 1.0},
             {"action": "tap_text", "text": "行情", "timeout": 3},
-            {"action": "record", "name": "market_reached", "detail": "行情"},
+            {"action": "record", "name": "entered_market_tab", "detail": "行情"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "tap_text", "text": "精选", "timeout": 3},
-            {"action": "record", "name": "featured_reached", "detail": "精选"},
+            {"action": "record", "name": "tap_featured_tab", "detail": "精选"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "swipe_up", "times": 2, "sleep": 1.0},
         ],
-        expected_keys=["Topic", "Theme", "List"],
-        required_events=["launch_app", "home_reached", "market_reached", "featured_reached", "request_captured", "report_written", "run_written"],
     ),
     "dragon_tiger": PageSpec(
         name="dragon_tiger",
-        goal="抓取龙虎榜页面数据并落盘",
+        goal="采集龙虎榜页相关产物",
         modules=["dragon_tiger", "ranking"],
-        output=["run", "report", "page_summary"],
+        output=["run", "report", "evidence_bundle"],
         compare="none",
-        interpretation_style="human_summary",
-        next_action_hint="继续细化龙虎榜子榜单与个股明细",
+        interpretation_style="evidence_bundle",
         notes=[
-            "龙虎榜先作为已注册页面接入，由我来决定具体抓法和后续拆分。",
-            "第一版先验证导航、抓包和关键字段命中闭环。",
+            "执行模板只负责页面动作与取证。",
+            "动作记录不能直接当成已进入龙虎榜主块的证明。",
         ],
         navigation_steps=[
             {"action": "back", "times": 3, "sleep": 0.8},
             {"action": "tap_text_or_fallback", "text": "首页", "timeout": 2},
-            {"action": "record", "name": "home_reached", "detail": "首页"},
+            {"action": "record", "name": "entered_home_tab", "detail": "首页"},
             {"action": "sleep", "seconds": 1.0},
             {"action": "tap_text", "text": "行情", "timeout": 3},
-            {"action": "record", "name": "market_reached", "detail": "行情"},
+            {"action": "record", "name": "entered_market_tab", "detail": "行情"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "tap_text", "text": "龙虎榜", "timeout": 3},
-            {"action": "record", "name": "dragon_tiger_reached", "detail": "龙虎榜"},
+            {"action": "record", "name": "tap_dragon_tiger_tab", "detail": "龙虎榜"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "swipe_up", "times": 2, "sleep": 1.0},
         ],
-        expected_keys=["LongHuBang", "DragonTigerList", "List"],
-        required_events=["launch_app", "home_reached", "market_reached", "dragon_tiger_reached", "request_captured", "report_written", "run_written"],
     ),
 }
 
@@ -191,6 +174,5 @@ def build_task_defaults(name: str | None) -> dict:
         "output": list(spec.output),
         "compare": spec.compare,
         "interpretation_style": spec.interpretation_style,
-        "next_action_hint": spec.next_action_hint,
         "notes": list(spec.notes),
     }
