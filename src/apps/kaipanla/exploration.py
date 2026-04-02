@@ -13,6 +13,7 @@ import json
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from src.apps.kaipanla.task import RunResult
 
@@ -21,6 +22,8 @@ from src.apps.kaipanla.task import RunResult
 class ExplorationResult:
     task_id: str
     target_hint: str = ""
+    round_index: int = 1
+    max_rounds: int = 1
     evidence_status: str = "evidence_insufficient"
     observed_keys: list[str] = field(default_factory=list)
     navigation_events: list[str] = field(default_factory=list)
@@ -93,122 +96,193 @@ def _record_fact(step_event: dict) -> dict:
         "name": step_event.get("name", ""),
         "detail": step_event.get("detail", ""),
         "timestamp": step_event.get("at", ""),
+        "action": step_event.get("action", ""),
+        "index": step_event.get("index"),
+        "found": step_event.get("found"),
+        "executed": step_event.get("executed"),
+        "error": step_event.get("error", ""),
+    }
+
+
+def _action_finished_events(step_events: list[dict]) -> list[dict]:
+    return [event for event in step_events if event.get("name") == "action_finished"]
+
+
+def _texts(payload: dict | None) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    visible = payload.get("visible_text")
+    if isinstance(visible, dict):
+        return [str(item) for item in visible.get("texts", []) if str(item).strip()]
+    return []
+
+
+def _request_window_facts(raw_records: list[dict], action_events: list[dict]) -> dict[str, Any]:
+    path_counts: Counter[str] = Counter()
+    key_counter: Counter[str] = Counter()
+    value_shapes: dict[str, dict] = {}
+    sample_records: list[dict] = []
+
+    for rec in raw_records:
+        data = rec.get("data") if isinstance(rec, dict) else None
+        if not isinstance(data, dict):
+            continue
+        path = str(rec.get("path") or "")
+        keys = list(data.keys())
+        if path:
+            path_counts[path] += 1
+        key_counter.update(keys)
+        for key in keys:
+            if key not in value_shapes:
+                value_shapes[key] = _value_shape(data.get(key))
+        if len(sample_records) < 8:
+            sample_records.append({
+                "ts": rec.get("ts", ""),
+                "path": path,
+                "keys": keys[:20],
+                "day": data.get("Day", ""),
+                "time": data.get("Time", ""),
+            })
+
+    action_windows = []
+    for event in action_events:
+        before = event.get("before") if isinstance(event.get("before"), dict) else {}
+        after = event.get("after") if isinstance(event.get("after"), dict) else {}
+        action_windows.append({
+            "action_id": before.get("action_id") or after.get("action_id") or event.get("detail", ""),
+            "action": event.get("action", ""),
+            "before_at": before.get("captured_at", ""),
+            "after_at": after.get("captured_at", ""),
+        })
+
+    return {
+        "raw_record_count": len(raw_records),
+        "observed_paths": [path for path, _ in path_counts.most_common(10)],
+        "path_counts": dict(path_counts),
+        "observed_keys": [key for key, _ in key_counter.most_common(20)],
+        "key_counts": dict(key_counter),
+        "value_shapes": value_shapes,
+        "sample_records": sample_records,
+        "action_windows": action_windows,
     }
 
 
 def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> ExplorationResult:
-    key_counter: Counter[str] = Counter()
-    path_counter: Counter[str] = Counter()
-    pre_nav_counter: Counter[str] = Counter()
-    post_nav_counter: Counter[str] = Counter()
-    value_shapes: dict[str, dict] = {}
-    examples: list[dict] = []
+    step_events = list(run.step_events or [])
+    navigation_events = [event.get("name", "") for event in step_events if event.get("name")]
+    action_events = _action_finished_events(step_events)
 
-    navigation_events = [
-        event.get("name", "")
-        for event in (run.step_events or [])
-        if event.get("name")
-    ]
-    reached_index = next(
-        (idx for idx, name in enumerate(navigation_events) if name.endswith("_reached")),
-        None,
-    )
-
-    raw_record_count = 0
+    raw_records = []
     for rec, data in _iter_raw_records(run.raw_paths):
-        raw_record_count += 1
-        keys = list(data.keys())
-        path = str(rec.get("path") or "")
-        path_counter[path] += 1
-        key_counter.update(keys)
+        item = dict(rec)
+        item["data"] = data
+        raw_records.append(item)
 
-        is_post_nav_record = bool(reached_index is not None and any(name.endswith("_reached") for name in navigation_events))
-        for key in keys:
-            if is_post_nav_record:
-                post_nav_counter[key] += 1
-            else:
-                pre_nav_counter[key] += 1
-            if key not in value_shapes:
-                value_shapes[key] = _value_shape(data.get(key))
-
-        if len(examples) < 5:
-            examples.append(
-                {
-                    "ts": rec.get("ts", ""),
-                    "path": path,
-                    "keys": keys[:20],
-                    "day": data.get("Day", ""),
-                    "time": data.get("Time", ""),
-                }
-            )
-
-    observed_keys = [key for key, _ in key_counter.most_common(20)]
-    observed_paths = [path for path, _ in path_counter.most_common(10) if path]
+    request_facts = _request_window_facts(raw_records, action_events)
+    observed_keys = list(request_facts.get("observed_keys", []))
+    observed_paths = list(request_facts.get("observed_paths", []))
+    value_shapes = request_facts.get("value_shapes", {})
+    key_counts = request_facts.get("key_counts", {})
 
     candidate_structures = []
-    for key in observed_keys[:12]:
-        candidate_structures.append(
-            {
-                "name": key,
-                "kind": value_shapes.get(key, {}).get("kind", "unknown"),
-                "shape": value_shapes.get(key, {}),
-                "count": key_counter.get(key, 0),
-                "pre_navigation_hits": pre_nav_counter.get(key, 0),
-                "post_navigation_hits": post_nav_counter.get(key, 0),
-                "post_navigation_only": pre_nav_counter.get(key, 0) == 0 and post_nav_counter.get(key, 0) > 0,
-            }
-        )
+    noise_structures = []
+    for key in observed_keys[:16]:
+        fact = {
+            "name": key,
+            "kind": value_shapes.get(key, {}).get("kind", "unknown"),
+            "shape": value_shapes.get(key, {}),
+            "count": key_counts.get(key, 0),
+            "reason": "noise_key_match" if key in NOISE_KEYS else "observed_structure",
+        }
+        if key in NOISE_KEYS:
+            noise_structures.append(fact)
+        else:
+            candidate_structures.append(fact)
 
-    meta_keys = [key for key in observed_keys if key in {"Day", "Time", "code", "ttag"}]
-    noise_keys = [key for key in observed_keys if key in NOISE_KEYS]
+    ui_pairs = []
+    ui_changed_count = 0
+    for event in action_events:
+        before = event.get("before") if isinstance(event.get("before"), dict) else {}
+        after = event.get("after") if isinstance(event.get("after"), dict) else {}
+        before_texts = _texts(before)
+        after_texts = _texts(after)
+        added = [text for text in after_texts if text not in before_texts]
+        removed = [text for text in before_texts if text not in after_texts]
+        ui_changed = bool(added or removed)
+        if ui_changed:
+            ui_changed_count += 1
+        ui_pairs.append({
+            "action_id": before.get("action_id") or after.get("action_id") or event.get("detail", ""),
+            "action": event.get("action", ""),
+            "before": {
+                "screenshot": (before.get("screenshot") or {}).get("path", "") if isinstance(before.get("screenshot"), dict) else "",
+                "ui_dump": (before.get("ui_dump") or {}).get("path", "") if isinstance(before.get("ui_dump"), dict) else "",
+                "visible_text": before_texts,
+            },
+            "after": {
+                "screenshot": (after.get("screenshot") or {}).get("path", "") if isinstance(after.get("screenshot"), dict) else "",
+                "ui_dump": (after.get("ui_dump") or {}).get("path", "") if isinstance(after.get("ui_dump"), dict) else "",
+                "visible_text": after_texts,
+            },
+            "visible_text_diff": {
+                "added": added[:20],
+                "removed": removed[:20],
+            },
+            "ui_changed": ui_changed,
+        })
 
-    raw_ok = raw_record_count > 0
-    steps_ok = bool(run.step_events)
-    evidence_status = "evidence_complete" if raw_ok and steps_ok else ("evidence_partial" if raw_ok or steps_ok else "evidence_insufficient")
+    artifact_facts = {
+        "captured_count": run.captured_count,
+        "parsed_count": run.parsed_count,
+        "raw_paths": list(run.raw_paths or []),
+        "report_path": run.report_path,
+        "db_path": run.db_path,
+        "action_evidence_count": len((run.artifacts or {}).get("action_evidence", [])) if isinstance(run.artifacts, dict) else 0,
+    }
+
+    has_action_facts = bool(action_events)
+    has_ui_facts = bool(ui_pairs)
+    has_request_facts = request_facts.get("raw_record_count", 0) > 0
+    has_structure_facts = bool(candidate_structures or noise_structures)
+    has_artifact_facts = bool(artifact_facts.get("raw_paths") or artifact_facts.get("report_path") or artifact_facts.get("db_path"))
+
+    complete_count = sum([has_action_facts, has_ui_facts, has_request_facts, has_structure_facts, has_artifact_facts])
+    if complete_count >= 5:
+        evidence_status = "evidence_complete"
+    elif complete_count >= 3:
+        evidence_status = "evidence_partial"
+    else:
+        evidence_status = "evidence_insufficient"
 
     return ExplorationResult(
         task_id=task_id,
         target_hint=target_hint,
+        round_index=getattr(run, "round_index", 1) or 1,
+        max_rounds=getattr(run, "max_rounds", 1) or 1,
         evidence_status=evidence_status,
         observed_keys=observed_keys,
         navigation_events=navigation_events,
-        raw_record_count=raw_record_count,
+        raw_record_count=request_facts.get("raw_record_count", 0),
         observed_paths=observed_paths,
         evidence={
             "action_facts": {
-                "steps": [_record_fact(event) for event in (run.step_events or [])],
+                "steps": [_record_fact(event) for event in step_events],
+                "action_rounds": [_record_fact(event) for event in action_events],
                 "navigation_events": navigation_events,
-                "step_count": len(run.step_events or []),
+                "step_count": len(step_events),
             },
             "ui_facts": {
-                "screenshot_before": "",
-                "screenshot_after": "",
-                "ui_dump_before": "",
-                "ui_dump_after": "",
-                "ui_changed": False,
-                "visible_text_before": [],
-                "visible_text_after": [],
+                "pairs": ui_pairs,
+                "ui_changed_count": ui_changed_count,
+                "ui_changed": ui_changed_count > 0,
             },
-            "request_facts": {
-                "raw_record_count": raw_record_count,
-                "observed_paths": observed_paths,
-                "path_counts": dict(path_counter),
-                "pre_navigation_counts": dict(pre_nav_counter),
-                "post_navigation_counts": dict(post_nav_counter),
-                "sample_records": examples,
-            },
+            "request_facts": request_facts,
             "structure_facts": {
                 "observed_keys": observed_keys,
                 "candidate_structures": candidate_structures,
-                "meta_keys": meta_keys,
-                "noise_keys": noise_keys,
+                "noise_structures": noise_structures,
+                "meta_keys": [key for key in observed_keys if key in {"Day", "Time", "code", "ttag"}],
             },
-            "artifact_facts": {
-                "captured_count": run.captured_count,
-                "parsed_count": run.parsed_count,
-                "raw_paths": list(run.raw_paths or []),
-                "report_path": run.report_path,
-                "db_path": run.db_path,
-            },
+            "artifact_facts": artifact_facts,
         },
     )

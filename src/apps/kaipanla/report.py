@@ -16,6 +16,9 @@ from src.apps.kaipanla.task import RunResult, TaskSpec
 def build_page_summary(task: TaskSpec, result: RunResult) -> dict:
     if getattr(task, "mode", "registered") == "exploration":
         exploration = build_exploration_result(task.task_id, result, task.target_hint or task.goal)
+        ui_facts = exploration.evidence.get("ui_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        request_facts = exploration.evidence.get("request_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        structure_facts = exploration.evidence.get("structure_facts", {}) if isinstance(exploration.evidence, dict) else {}
         return {
             "mode": "exploration",
             "page": task.page,
@@ -23,10 +26,12 @@ def build_page_summary(task: TaskSpec, result: RunResult) -> dict:
             "bullets": [
                 f"探索目标：{task.target_hint or task.goal}",
                 f"证据状态：{exploration.evidence_status}",
-                f"观测到的 key：{', '.join(exploration.observed_keys[:12]) or '无'}",
-                f"观测到的 path：{', '.join(exploration.observed_paths) or '无'}",
-                f"导航事件：{', '.join(exploration.navigation_events) or '无'}",
-                f"raw 记录数：{exploration.raw_record_count}",
+                f"轮次：{exploration.round_index}/{exploration.max_rounds}",
+                f"UI 证据对数：{len(ui_facts.get('pairs', []))}",
+                f"UI 是否有变化：{'是' if ui_facts.get('ui_changed') else '否'}",
+                f"请求记录数：{request_facts.get('raw_record_count', 0)}",
+                f"候选结构数：{len(structure_facts.get('candidate_structures', []))}",
+                f"噪声结构数：{len(structure_facts.get('noise_structures', []))}",
             ],
             "exploration": exploration.to_dict(),
         }
@@ -93,19 +98,27 @@ def render_run_report(task: TaskSpec, result: RunResult) -> str:
 
     if getattr(task, "mode", "registered") == "exploration":
         exploration = build_exploration_result(task.task_id or result.task_id, result, task.target_hint or task.goal)
+        action_facts = exploration.evidence.get("action_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        ui_facts = exploration.evidence.get("ui_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        request_facts = exploration.evidence.get("request_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        structure_facts = exploration.evidence.get("structure_facts", {}) if isinstance(exploration.evidence, dict) else {}
         lines.extend([
-            "## Exploration Evidence",
+            "## Exploration Probe Report",
             f"- 证据状态: {exploration.evidence_status}",
-            f"- 导航事件: {', '.join(exploration.navigation_events) or '无'}",
-            f"- 观测到的 key: {', '.join(exploration.observed_keys[:12]) or '无'}",
-            f"- 观测到的 path: {', '.join(exploration.observed_paths) or '无'}",
-            f"- raw 记录数: {exploration.raw_record_count}",
+            f"- 轮次: {exploration.round_index}/{exploration.max_rounds}",
+            f"- 动作事实数: {len(action_facts.get('action_rounds', []))}",
+            f"- UI 证据对数: {len(ui_facts.get('pairs', []))}",
+            f"- UI 是否变化: {'是' if ui_facts.get('ui_changed') else '否'}",
+            f"- 请求记录数: {request_facts.get('raw_record_count', 0)}",
+            f"- 候选结构数: {len(structure_facts.get('candidate_structures', []))}",
+            f"- 噪声结构数: {len(structure_facts.get('noise_structures', []))}",
             "",
-            "## 说明",
-            "- 这是事实证据包，不代表 bridge 已确认目标页面语义或主块。",
-            "- 下一步解释、继续、停止、ask-human，应由 AI 决定。",
+            "## 当前不确定性",
+            "- 本报告只陈述动作、UI、请求、结构与产物事实。",
+            "- 不能据此直接宣称已进入目标主块或已稳定抓到目标数据。",
+            "- 是否继续、停止、ask-human，应由 AI 基于证据判断。",
             "",
-            "## Evidence Bundle",
+            "## Evidence Bundle v2",
             "```json",
             json.dumps(exploration.to_dict(), ensure_ascii=False, indent=2),
             "```",

@@ -133,12 +133,21 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
 
     if getattr(task, "mode", "registered") == "exploration":
         exploration = build_exploration_result(task.task_id or result.task_id, result, task.target_hint or task.goal)
-        details.append(f"exploration.evidence_status={exploration.evidence_status}")
-        details.append(f"observed_keys={', '.join(exploration.observed_keys[:12]) or '无'}")
-        details.append(f"raw_record_count={exploration.raw_record_count}")
-        details.append(f"navigation_events={', '.join(exploration.navigation_events) or '无'}")
+        action_facts = exploration.evidence.get("action_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        ui_facts = exploration.evidence.get("ui_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        request_facts = exploration.evidence.get("request_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        structure_facts = exploration.evidence.get("structure_facts", {}) if isinstance(exploration.evidence, dict) else {}
+        artifact_facts = exploration.evidence.get("artifact_facts", {}) if isinstance(exploration.evidence, dict) else {}
 
-        status = "evidence_complete" if ok and exploration.evidence_status == "evidence_complete" else ("evidence_partial" if ok else "evidence_insufficient")
+        details.append(f"exploration.evidence_status={exploration.evidence_status}")
+        details.append(f"action_rounds={len(action_facts.get('action_rounds', []))}")
+        details.append(f"ui_pairs={len(ui_facts.get('pairs', []))}")
+        details.append(f"raw_record_count={request_facts.get('raw_record_count', 0)}")
+        details.append(f"candidate_structures={len(structure_facts.get('candidate_structures', []))}")
+        details.append(f"noise_structures={len(structure_facts.get('noise_structures', []))}")
+        details.append(f"action_evidence_count={artifact_facts.get('action_evidence_count', 0)}")
+
+        status = exploration.evidence_status if ok else "evidence_insufficient"
         return VerificationResult(
             task_id=result.task_id or task.task_id,
             status=status,
@@ -146,15 +155,21 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             details=details,
             selected_snapshot={
                 "target_hint": task.target_hint,
+                "round_index": exploration.round_index,
+                "max_rounds": exploration.max_rounds,
                 "observed_keys": exploration.observed_keys[:12],
                 "observed_paths": exploration.observed_paths,
                 "navigation_events": exploration.navigation_events,
+                "ui_changed": ui_facts.get("ui_changed", False),
                 "latest_raw": latest_snapshot,
             },
             flags={
                 "exploration_mode": True,
-                "has_observed_keys": bool(exploration.observed_keys),
-                "evidence_complete": exploration.evidence_status == "evidence_complete",
+                "has_action_facts": bool(action_facts.get("action_rounds")),
+                "has_ui_facts": bool(ui_facts.get("pairs")),
+                "has_request_facts": request_facts.get("raw_record_count", 0) > 0,
+                "has_structure_facts": bool(structure_facts.get("candidate_structures") or structure_facts.get("noise_structures")),
+                "has_artifact_facts": bool(artifact_facts),
                 "run_succeeded": result.status in ("success", "partial"),
             },
         )
