@@ -127,6 +127,46 @@ def test_verify_run_generic_page_success(tmp_path):
     assert any("页面关键字段命中" in item for item in verification.details)
 
 
+def test_verify_run_exploration_mode(tmp_path):
+    db_path = tmp_path / "kaipanla.db"
+    task = TaskSpec.for_exploration("探索抓取龙虎榜", page="dragon_tiger", preset="dragon_tiger")
+    task.db_path = str(db_path)
+    task.runs_dir = str(tmp_path / "runs")
+    task.reports_dir = str(tmp_path / "reports")
+    task.raw_dir = str(tmp_path / "raw")
+
+    task_path = tmp_path / "runs" / f"{task.task_id}.task.json"
+    run_path = tmp_path / "runs" / f"{task.task_id}.json"
+    report_path = tmp_path / "reports" / f"{task.task_id}.md"
+    raw_path = tmp_path / "raw" / "20260402.jsonl"
+
+    task.save(task_path)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text('{"path":"/w1/api/index.php","data":{"DongXiang":[],"LongHuBang":[{"Name":"联环药业"}],"Day":"2026-04-02","Time":1775097000}}\n', encoding="utf-8")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report", encoding="utf-8")
+
+    result = RunResult(
+        task_id=task.task_id,
+        status="success",
+        raw_paths=[str(raw_path)],
+        db_path=str(db_path),
+        report_path=str(report_path),
+        step_events=[
+            {"name": "launch_app", "detail": "com.aiyu.kaipanla", "at": "2026-04-02T11:00:00"},
+            {"name": "home_reached", "detail": "首页", "at": "2026-04-02T11:00:01"},
+            {"name": "market_reached", "detail": "行情", "at": "2026-04-02T11:00:02"},
+            {"name": "dragon_tiger_reached", "detail": "龙虎榜", "at": "2026-04-02T11:00:03"},
+        ],
+    )
+    result.save(run_path)
+
+    verification = verify_run(run_path)
+    assert verification.status == "verified"
+    assert verification.flags["exploration_mode"] is True
+    assert verification.flags["candidate_found"] is True
+
+
 def test_render_verification_summary():
     summary = render_verification_summary(
         verify_run("missing.json")

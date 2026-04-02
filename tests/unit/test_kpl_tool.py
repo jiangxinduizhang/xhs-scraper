@@ -138,3 +138,13 @@ def test_kpl_tool_latest_and_status(tmp_path, monkeypatch, capsys):
     assert code == 0
     assert status_payload["ok"] is True
     assert status_payload["verification"]["status"] == "verified"
+
+
+def test_kpl_tool_explore_dry_run(capsys):
+    code = main(["explore", "探索抓取龙虎榜"])
+    payload = _load_stdout(capsys)
+
+    assert code == 0
+    assert payload["command"] == "explore"
+    assert payload["task"]["mode"] == "exploration"
+    assert payload["execute"] is False

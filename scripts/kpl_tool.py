@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.apps.kaipanla.exploration import build_exploration_result
 from src.apps.kaipanla.pages import list_pages
 from src.apps.kaipanla.report import build_page_summary, render_run_report
 from src.apps.kaipanla.runner import run_task
@@ -25,6 +26,15 @@ def _load_task(task_path: str | None, preset: str | None = None) -> TaskSpec:
     if task_path:
         return TaskSpec.load(task_path)
     return TaskSpec.for_preset(preset)
+
+
+def _load_exploration_task(text: str, preset: str | None = None) -> TaskSpec:
+    parsed = parse_nl_request(text, default_preset=preset or "market_emotion")
+    return TaskSpec.for_exploration(
+        text,
+        page=parsed.get("preset") or preset or "market_emotion",
+        preset=parsed.get("preset") or preset or "market_emotion",
+    )
 
 
 def _task_meta(task: TaskSpec, *, used_default_preset: bool = False) -> dict:
@@ -306,6 +316,31 @@ def cmd_status(args) -> dict:
     return latest
 
 
+def cmd_explore(args) -> dict:
+    task = _load_exploration_task(args.text, args.preset)
+    payload = {
+        "ok": True,
+        "command": "explore",
+        "execute": bool(args.execute),
+        "task": task.to_dict(),
+        "task_meta": {
+            **_task_meta(task, used_default_preset=False),
+            "mode": "exploration",
+        },
+    }
+    if not args.execute:
+        payload["message"] = "已生成 exploration task；当前为 dry-run，未实际执行。"
+        return payload
+
+    run = run_task(task)
+    exploration = build_exploration_result(task.task_id, run, task.target_hint or task.goal)
+    payload["run"] = run.to_dict()
+    payload["page_summary"] = build_page_summary(task, run)
+    payload["exploration"] = exploration.to_dict()
+    payload["ok"] = run.status in ("success", "partial")
+    return payload
+
+
 def cmd_ask(args) -> dict:
     parsed = parse_nl_request(args.text, default_preset=args.preset)
     payload = {
@@ -383,6 +418,11 @@ def main(argv: list[str] | None = None) -> int:
     p_status.add_argument("--runs-dir", default="runs", help="runs directory")
     p_status.add_argument("--preset", default="market_emotion", help="fallback preset when task file is missing")
 
+    p_explore = sub.add_parser("explore", help="assistant-directed exploration")
+    p_explore.add_argument("text", help="exploration target")
+    p_explore.add_argument("--preset", default="market_emotion", help="default preset/page for exploration bootstrap")
+    p_explore.add_argument("--execute", action="store_true", help="actually execute the exploration task")
+
     p_ask = sub.add_parser("ask", help="route a natural-language request")
     p_ask.add_argument("text", help="natural-language request")
     p_ask.add_argument("--runs-dir", default="runs", help="runs directory")
@@ -401,6 +441,8 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(cmd_latest(args), pretty=args.pretty)
     if args.command == "status":
         return _emit(cmd_status(args), pretty=args.pretty)
+    if args.command == "explore":
+        return _emit(cmd_explore(args), pretty=args.pretty)
     if args.command == "ask":
         return _emit(cmd_ask(args), pretty=args.pretty)
     raise SystemExit(f"unknown command: {args.command}")

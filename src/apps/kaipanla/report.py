@@ -8,6 +8,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.apps.kaipanla.exploration import build_exploration_result
 from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.task import RunResult, TaskSpec
 
@@ -637,7 +638,40 @@ def build_market_summary(task: TaskSpec, result: RunResult) -> dict:
     }
 
 
+def _build_exploration_summary(task: TaskSpec, result: RunResult) -> dict:
+    exploration = build_exploration_result(task.task_id, result, task.target_hint or task.goal)
+    bullets = [
+        f"探索目标：{task.target_hint or task.goal}",
+        f"探索状态：{exploration.status}",
+        f"候选关键字段：{', '.join(exploration.candidate_keys) or '无'}",
+        f"命中记录数：{exploration.matched_records}",
+        f"到达导航节点：{', '.join(exploration.navigation_reached) or '无'}",
+        f"建议：{exploration.recommendation}",
+    ]
+    return {
+        "page": task.page,
+        "mode": "exploration",
+        "status": result.status,
+        "bullets": bullets,
+        "counts": {
+            "captured_count": result.captured_count,
+            "parsed_count": result.parsed_count,
+            "matched_records": exploration.matched_records,
+        },
+        "sections": {
+            "candidate_keys": exploration.candidate_keys,
+            "likely_noise_keys": exploration.likely_noise_keys,
+            "navigation_reached": exploration.navigation_reached,
+            "recommendation": exploration.recommendation,
+            "recommended_page_name": exploration.recommended_page_name,
+        },
+        "exploration": exploration.to_dict(),
+    }
+
+
 def build_page_summary(task: TaskSpec, result: RunResult) -> dict:
+    if getattr(task, "mode", "registered") == "exploration":
+        return _build_exploration_summary(task, result)
     if task.page == "market_emotion":
         return build_market_summary(task, result)
     return _build_generic_page_summary(task, result)

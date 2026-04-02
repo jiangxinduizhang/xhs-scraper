@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.storage.db import Database
+from src.apps.kaipanla.exploration import build_exploration_result
 from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.task import RunResult, TaskSpec
 
@@ -129,6 +130,54 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
     checks: list[str] = []
     details: list[str] = []
     ok = True
+    report_path = Path(result.report_path or Path(task.reports_dir) / f"{task.task_id}.md")
+    if getattr(task, "mode", "registered") == "exploration":
+        exploration = build_exploration_result(task.task_id or result.task_id, result, task.target_hint or task.goal)
+        if report_path.exists():
+            checks.append("report.md 已生成")
+        else:
+            checks.append("report.md 不存在")
+            ok = False
+
+        task_file = run_path.with_suffix(".task.json")
+        if task_file.exists():
+            checks.append("task.json 已生成")
+        else:
+            checks.append("task.json 不存在")
+            ok = False
+
+        raw_ok = any(Path(raw).exists() for raw in result.raw_paths) if result.raw_paths else False
+        if raw_ok:
+            checks.append("raw 样本已生成")
+        else:
+            checks.append("raw 样本缺失")
+            ok = False
+
+        details.append(f"exploration.status={exploration.status}")
+        details.append(f"candidate_keys={', '.join(exploration.candidate_keys) or '无'}")
+        details.append(f"matched_records={exploration.matched_records}")
+        details.append(f"navigation_reached={', '.join(exploration.navigation_reached) or '无'}")
+        details.append(f"recommendation={exploration.recommendation}")
+
+        status = "verified" if ok and exploration.status in {"candidate_found", "ready_to_promote"} else "needs_attention"
+        return VerificationResult(
+            task_id=result.task_id or task.task_id,
+            status=status,
+            checks=checks,
+            details=details,
+            selected_snapshot={
+                "target_hint": task.target_hint,
+                "candidate_keys": exploration.candidate_keys,
+                "recommended_page_name": exploration.recommended_page_name,
+            },
+            flags={
+                "exploration_mode": True,
+                "candidate_found": bool(exploration.candidate_keys),
+                "ready_to_promote": exploration.status == "ready_to_promote",
+                "run_succeeded": result.status in ("success", "partial"),
+            },
+        )
+
     page_spec = get_page_spec(task.page)
 
     report_path = Path(result.report_path or Path(task.reports_dir) / f"{task.task_id}.md")

@@ -30,6 +30,15 @@ def test_task_spec_supports_multiple_registered_pages():
     assert dragon.preset == "dragon_tiger"
 
 
+def test_task_spec_supports_exploration_mode():
+    task = TaskSpec.for_exploration("探索抓取龙虎榜")
+
+    assert task.mode == "exploration"
+    assert task.target_hint == "探索抓取龙虎榜"
+    assert "produce_exploration_summary" in task.success_criteria
+    assert "exploration_summary" in task.output
+
+
 def test_run_result_roundtrip(tmp_path):
     result = RunResult(
         task_id="task-001",

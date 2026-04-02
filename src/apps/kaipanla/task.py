@@ -23,9 +23,12 @@ class TaskSpec:
     schema_version: int = 1
     task_id: str = ""
     app: str = "kaipanla"
+    mode: str = "registered"
     page: str = "market_emotion"
     goal: str = ""
     preset: str = "market_emotion"
+    target_hint: str = ""
+    success_criteria: list[str] = field(default_factory=list)
     modules: list[str] = field(default_factory=list)
     output: list[str] = field(default_factory=list)
     compare: str = "previous_trading_day"
@@ -67,7 +70,42 @@ class TaskSpec:
     @classmethod
     def for_preset(cls, preset: str | None) -> "TaskSpec":
         defaults = build_task_defaults(preset)
+        defaults.setdefault("mode", "registered")
+        defaults.setdefault("success_criteria", ["verify=verified"])
         return cls(**defaults)
+
+    @classmethod
+    def for_exploration(
+        cls,
+        target_hint: str,
+        *,
+        page: str | None = None,
+        preset: str | None = None,
+        navigation_hint: str = "",
+    ) -> "TaskSpec":
+        chosen_page = page or preset or "market_emotion"
+        base = build_task_defaults(chosen_page)
+        base.update(
+            {
+                "mode": "exploration",
+                "page": chosen_page,
+                "preset": preset or chosen_page,
+                "goal": f"探索抓取目标：{target_hint}",
+                "target_hint": target_hint,
+                "success_criteria": [
+                    "find_candidate_keys",
+                    "produce_exploration_summary",
+                ],
+                "output": ["run", "report", "exploration_summary"],
+                "interpretation_style": "exploration",
+                "notes": list(base.get("notes", [])) + [
+                    f"探索目标: {target_hint}",
+                    f"navigation_hint: {navigation_hint}" if navigation_hint else "navigation_hint: <none>",
+                ],
+                "next_action_hint": "根据 exploration_summary 判断是否沉淀为 registered page",
+            }
+        )
+        return cls(**base)
 
 
 @dataclass(slots=True)
