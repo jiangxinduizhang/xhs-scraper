@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "task_id": "kpl-market-emotion-manual-20260401-1726",
+  "app": "kaipanla",
+  "page": "market_emotion",
+  "goal": "采集开盘啦APP市场情绪页面最新数据并生成可核验证据",
+  "status": "success",
+  "started_at": "2026-04-01T17:27:57",
+  "finished_at": "2026-04-01T17:28:45",
+  "duration_sec": 47.241019,
+  "raw_paths": [
+    "data/raw/20260401.jsonl"
+  ],
+  "db_path": "data/kaipanla.db",
+  "captured_count": 10,
+  "parsed_count": 70,
+  "source_counts": {
+    "unknown": 16,
+    "market_sentiment": 54
+  },
+  "note_type_counts": {
+    "msg_top": 12,
+    "tcop": 4,
+    "market_emotion_summary": 2,
+    "market_weather_sz": 2,
+    "market_weather_xd": 2,
+    "market_baceface": 8,
+    "market_fkyd": 12,
+    "market_phb": 6,
+    "market_jjxt": 6,
+    "market_zqfk": 6,
+    "market_plz": 6,
+    "market_zlsc": 4
+  },
+  "step_events": [
+    {
+      "name": "proxy_started",
+      "detail": "port=8080",
+      "at": "2026-04-01T17:27:59"
+    },
+    {
+      "name": "proxy_configured",
+      "detail": "port=8080",
+      "at": "2026-04-01T17:28:00"
+    },
+    {
+      "name": "preflight_ok",
+      "detail": "adb reverse + proxy",
+      "at": "2026-04-01T17:28:00"
+    },
+    {
+      "name": "launch_app",
+      "detail": "com.aiyu.kaipanla .splash.SplashActivity",
+      "at": "2026-04-01T17:28:14"
+    },
+    {
+      "name": "app_started",
+      "detail": "com.aiyu.kaipanla",
+      "at": "2026-04-01T17:28:14"
+    },
+    {
+      "name": "home_reached",
+      "detail": "首页",
+      "at": "2026-04-01T17:28:23"
+    },
+    {
+      "name": "market_reached",
+      "detail": "行情",
+      "at": "2026-04-01T17:28:27"
+    },
+    {
+      "name": "emotion_reached",
+      "detail": "情绪",
+      "at": "2026-04-01T17:28:32"
+    },
+    {
+      "name": "page_flow_complete",
+      "detail": "market_emotion",
+      "at": "2026-04-01T17:28:42"
+    },
+    {
+      "name": "request_captured",
+      "detail": "10",
+      "at": "2026-04-01T17:28:45"
+    },
+    {
+      "name": "parsed_complete",
+      "detail": "70",
+      "at": "2026-04-01T17:28:45"
+    },
+    {
+      "name": "report_written",
+      "detail": "reports/kpl-market-emotion-manual-20260401-1726.md",
+      "at": "2026-04-01T17:28:45"
+    },
+    {
+      "name": "run_written",
+      "detail": "runs/kpl-market-emotion-manual-20260401-1726.json",
+      "at": "2026-04-01T17:28:45"
+    }
+  ],
+  "error": "",
+  "next_action": "",
+  "report_path": "reports/kpl-market-emotion-manual-20260401-1726.md"
+}

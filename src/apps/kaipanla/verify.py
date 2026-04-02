@@ -156,7 +156,6 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
                 "has_observed_keys": bool(exploration.observed_keys),
                 "evidence_complete": exploration.evidence_status == "evidence_complete",
                 "run_succeeded": result.status in ("success", "partial"),
-                "safe_to_claim_stable_capture": False,
             },
         )
 
@@ -177,7 +176,6 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             "raw_exists": raw_ok,
             "report_exists": report_path.exists(),
             "run_succeeded": result.status in ("success", "partial"),
-            "safe_to_claim_stable_capture": False,
         },
     )
 

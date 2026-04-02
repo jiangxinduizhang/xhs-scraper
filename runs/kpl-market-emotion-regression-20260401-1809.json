@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "task_id": "kpl-market-emotion-regression-20260401-1809",
+  "app": "kaipanla",
+  "page": "market_emotion",
+  "goal": "回归验证：重新采集开盘啦市场情绪页并验证最新主值选择是否正确",
+  "status": "failed",
+  "started_at": "2026-04-01T18:10:07",
+  "finished_at": "2026-04-01T18:10:09",
+  "duration_sec": 2.283298,
+  "raw_paths": [],
+  "db_path": "data/kaipanla.db",
+  "captured_count": 0,
+  "parsed_count": 0,
+  "source_counts": {},
+  "note_type_counts": {},
+  "step_events": [
+    {
+      "name": "proxy_started",
+      "detail": "port=8080",
+      "at": "2026-04-01T18:10:09"
+    },
+    {
+      "name": "proxy_configured",
+      "detail": "port=8080",
+      "at": "2026-04-01T18:10:09"
+    },
+    {
+      "name": "report_written",
+      "detail": "reports/kpl-market-emotion-regression-20260401-1809.md",
+      "at": "2026-04-01T18:10:09"
+    },
+    {
+      "name": "run_written",
+      "detail": "runs/kpl-market-emotion-regression-20260401-1809.json",
+      "at": "2026-04-01T18:10:09"
+    }
+  ],
+  "error": "RuntimeError: 本地端口 8080 无监听。请先启动 mitmdump：\n  XHS_DB_PATH=\"data/xiaohongshu.db\" mitmdump -p 8080 -s src/proxy/addon.py",
+  "next_action": "检查环境和页面路径",
+  "report_path": "reports/kpl-market-emotion-regression-20260401-1809.md"
+}

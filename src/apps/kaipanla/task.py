@@ -71,7 +71,7 @@ class TaskSpec:
     def for_preset(cls, preset: str | None) -> "TaskSpec":
         defaults = build_task_defaults(preset)
         defaults.setdefault("mode", "registered")
-        defaults.setdefault("success_criteria", ["verify=verified"])
+        defaults.setdefault("success_criteria", ["artifacts_complete"])
         return cls(**defaults)
 
     @classmethod

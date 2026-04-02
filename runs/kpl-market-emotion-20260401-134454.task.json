@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "task_id": "kpl-market-emotion-20260401-134454",
+  "app": "kaipanla",
+  "page": "market_emotion",
+  "goal": "验证市场情绪页可稳定抓取并落库",
+  "package_name": "com.aiyu.kaipanla",
+  "launch_activity": ".splash.SplashActivity",
+  "db_path": "data/kaipanla.db",
+  "raw_dir": "data/raw",
+  "runs_dir": "runs",
+  "reports_dir": "reports",
+  "timeout_sec": 1800,
+  "max_attempts": 1,
+  "next_action_hint": "继续抓行情页其他标签",
+  "notes": [
+    "先保持最小闭环，不扩展多页面任务。",
+    "若抓取成功，优先输出可回读产物，再决定下一步。"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "task_id": "kpl-market-emotion-regression-20260401-1755",
+  "app": "kaipanla",
+  "page": "market_emotion",
+  "goal": "回归验证：重新采集开盘啦市场情绪页并验证最新主值选择是否正确",
+  "preset": "market_emotion",
+  "modules": [
+    "emotion",
+    "ranking",
+    "money_flow",
+    "themes"
+  ],
+  "output": [
+    "run",
+    "report",
+    "market_summary",
+    "day_compare"
+  ],
+  "compare": "previous_trading_day",
+  "interpretation_style": "trader_recap",
+  "package_name": "com.aiyu.kaipanla",
+  "launch_activity": ".splash.SplashActivity",
+  "db_path": "data/kaipanla.db",
+  "raw_dir": "data/raw",
+  "runs_dir": "runs",
+  "reports_dir": "reports",
+  "timeout_sec": 1800,
+  "max_attempts": 1,
+  "next_action_hint": "",
+  "notes": []
+}

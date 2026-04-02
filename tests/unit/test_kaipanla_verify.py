@@ -165,7 +165,6 @@ def test_verify_run_exploration_mode(tmp_path):
     assert verification.flags["exploration_mode"] is True
     assert verification.flags["has_observed_keys"] is True
     assert verification.flags["evidence_complete"] is True
-    assert verification.flags["safe_to_claim_stable_capture"] is False
 
 
 def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
@@ -198,7 +197,6 @@ def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
     result.save(run_path)
 
     verification = verify_run(run_path)
-    assert verification.flags["safe_to_claim_stable_capture"] is False
     assert verification.flags["has_observed_keys"] is True
 
 

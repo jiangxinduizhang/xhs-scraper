@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "task_id": "kpl-market-emotion-20260331-165632",
+  "app": "kaipanla",
+  "page": "market_emotion",
+  "goal": "验证市场情绪页可稳定抓取并落库",
+  "status": "success",
+  "started_at": "2026-03-31T16:56:32",
+  "finished_at": "2026-03-31T16:57:22",
+  "duration_sec": 49.724689,
+  "raw_paths": [
+    "data/raw/20260331.jsonl"
+  ],
+  "db_path": "data/kaipanla.db",
+  "captured_count": 5,
+  "parsed_count": 35,
+  "source_counts": {
+    "unknown": 8,
+    "market_sentiment": 27
+  },
+  "note_type_counts": {
+    "msg_top": 6,
+    "tcop": 2,
+    "market_emotion_summary": 1,
+    "market_weather_sz": 1,
+    "market_weather_xd": 1,
+    "market_baceface": 4,
+    "market_fkyd": 6,
+    "market_phb": 3,
+    "market_jjxt": 3,
+    "market_zqfk": 3,
+    "market_plz": 2,
+    "market_zlsc": 2,
+    "market_zdjk": 1
+  },
+  "error": "",
+  "next_action": "继续抓行情页其他标签",
+  "report_path": "reports/kpl-market-emotion-20260331-165632.md"
+}

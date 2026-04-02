@@ -75,7 +75,7 @@ description: "开盘啦执行桥：用于执行、校验、回读和取证式 ex
 注意：
 - registered 不等于 bridge 有权做复杂语义判断
 - registered verify 更接近“产物闭环是否成立”
-- 不应把 registered 的 success 话术误读成 AI 级结论
+- 不应把 registered 的 status 误读成 AI 级结论
 
 ### B. exploration
 
@@ -144,14 +144,16 @@ exploration 只应该输出事实证据，不应该输出结论。
 - `safe_to_claim_stable_capture`
 - `strong_candidate_evidence`
 - `ready_to_promote`
-
-这些要么已经被移除，要么属于 AI 层，不应再写成 runtime 输出契约。
+- `verify=verified`
+- `find_candidate_keys`
+- `produce_exploration_summary`
+- `exploration_summary`
 
 同样，不要再把这些口径当成当前 bridge 的真实接口：
 
-- `verify=verified` 才表示最终可对外宣称成功
 - `*_reached` 就等于页面已被真实确认进入
 - `expected_keys` 命中就等于页面主块已确认
+- “页面已抓取完成 / 命中关键字段” 就等于目标已被语义确认
 
 这些都容易把 bridge 重新写回“判断器”。
 
@@ -233,10 +235,6 @@ exploration report 应理解为**证据报告**，不是结论报告。
 - `persist_exploration_artifacts`
 - `runtime_role: execution_only`
 
-而不是：
-- `find_candidate_keys`
-- `produce_exploration_summary`
-
 ### run
 run 是执行记录，不是业务结论。
 
@@ -245,22 +243,7 @@ report 是产物消费层，不是任务成功定义本身。
 
 ---
 
-## 8. 当前仍需谨慎的地方
-
-虽然 exploration 主链路已大幅去判断化，但仓库里仍有一些旧世界残留，尤其在 registered 路径：
-
-- `pages.py` 中的 `expected_keys` / `required_events` / `next_action_hint`
-- `verify.py` registered 分支中的 `verified / needs_attention`
-- `report.py` registered generic summary 中“页面已抓取完成 / 命中关键字段”之类口径
-- `ask` / `parse_nl_request` 仍是桥接器侧的最小语义路由
-
-所以对外描述 skill 时要诚实：
-
-**当前 exploration 边界已经基本拉正；registered 路径仍有历史语义残留，后续还需继续清理。**
-
----
-
-## 9. 对外承诺边界
+## 8. 对外承诺边界
 
 可以承诺：
 
@@ -280,7 +263,7 @@ report 是产物消费层，不是任务成功定义本身。
 
 ---
 
-## 10. 典型协作方式
+## 9. 典型协作方式
 
 正确协作顺序应该是：
 
@@ -302,7 +285,7 @@ report 是产物消费层，不是任务成功定义本身。
 
 ---
 
-## 11. 调用方式
+## 10. 调用方式
 
 优先使用 bundled launcher：
 
@@ -329,10 +312,11 @@ python3 scripts/kpl_tool.py status
 注意：
 - exploration 现在应尽量显式给 `--preset`
 - 不要把 `explore` 当成 runtime 自己“理解你到底想抓什么”的入口
+- bridge 当前不再提供 `ask` 子命令作为自然语言路由入口
 
 ---
 
-## 12. 不要做
+## 11. 不要做
 
 - 不要把 bridge 写成 AI
 - 不要把 evidence bundle 写成 candidate judgment

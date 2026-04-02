@@ -62,7 +62,6 @@ exploration 结果必须至少包含以下五组事实：
 - round_index
 - max_rounds
 - target_hint
-- control_directive（本轮 AI 给的控制指令）
 - evidence_status
 
 ### 2.2 exploration verify 新口径
@@ -80,6 +79,8 @@ exploration verify 第一轮只允许输出证据完备度，不允许输出页�
 - `reached`
 - `stable_capture`
 - `ready_to_promote`
+- 页面已抓取完成
+- 命中关键字段
 
 ### 2.3 exploration report 新口径
 
@@ -101,13 +102,7 @@ exploration report 必须是“探测报告”，至少包含：
 
 第一轮必须定义一个最小 AI 控制协议，用于驱动下一轮 exploration。
 
-允许的控制动作只包含：
-- `continue_same_path`
-- `tighten_target_hint`
-- `capture_ui_before_after`
-- `focus_post_tap_window`
-- `stop`
-- `ask_human`
+当前协议应由 AI 持有，不应让 runtime 自己生成业务控制建议。
 
 AI 控制协议必须能表达：
 - 为什么继续/停止
@@ -149,10 +144,6 @@ AI 控制协议必须能表达：
   "target_hint": "龙虎榜",
   "round_index": 1,
   "max_rounds": 2,
-  "control_directive": {
-    "action": "capture_ui_before_after",
-    "reason": "需要对比点击前后 UI 与请求变化"
-  },
   "navigation_hint": {
     "entry_tab": "行情",
     "entry_text": "龙虎榜"
@@ -166,7 +157,6 @@ AI 控制协议必须能表达：
 ```
 
 说明：
-- `control_directive` 是 AI 给 bridge 的最小控制指令，不是 bridge 自己想出来的决策。
 - `navigation_hint` 允许存在，但不等于页面语义已确认。
 - `capture_options` 是证据采集选项，不是识别规则。
 
@@ -178,10 +168,6 @@ AI 控制协议必须能表达：
   "round_index": 1,
   "max_rounds": 2,
   "target_hint": "龙虎榜",
-  "control_directive": {
-    "action": "capture_ui_before_after",
-    "reason": "需要对比点击前后 UI 与请求变化"
-  },
   "action_facts": {
     "steps": [
       {

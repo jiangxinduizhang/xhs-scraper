@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "task_id": "kpl-market-emotion-regression-20260401-1755",
+  "app": "kaipanla",
+  "page": "market_emotion",
+  "goal": "回归验证：重新采集开盘啦市场情绪页并验证最新主值选择是否正确",
+  "status": "failed",
+  "started_at": "2026-04-01T17:56:11",
+  "finished_at": "2026-04-01T17:56:13",
+  "duration_sec": 2.113822,
+  "raw_paths": [],
+  "db_path": "data/kaipanla.db",
+  "captured_count": 0,
+  "parsed_count": 0,
+  "source_counts": {},
+  "note_type_counts": {},
+  "step_events": [
+    {
+      "name": "proxy_started",
+      "detail": "port=8080",
+      "at": "2026-04-01T17:56:13"
+    },
+    {
+      "name": "report_written",
+      "detail": "reports/kpl-market-emotion-regression-20260401-1755.md",
+      "at": "2026-04-01T17:56:13"
+    },
+    {
+      "name": "run_written",
+      "detail": "runs/kpl-market-emotion-regression-20260401-1755.json",
+      "at": "2026-04-01T17:56:13"
+    }
+  ],
+  "error": "CalledProcessError: Command '['adb', 'reverse', 'tcp:8080', 'tcp:8080']' returned non-zero exit status 1.",
+  "next_action": "检查环境和页面路径",
+  "report_path": "reports/kpl-market-emotion-regression-20260401-1755.md"
+}
