@@ -1,489 +1,345 @@
 ---
 name: openclaw-kaipanla-bridge
-description: "开盘啦通用采集桥：用于执行、校验、回读和探索用户指定的开盘啦 APP 采集任务。当用户要抓取开盘啦里的市场情绪、排行、连板、资金、题材、个股、板块、龙虎榜，查询最近一次运行状态，读取最新结果，或先探索某个页面/区域怎么抓时触发。"
+description: "开盘啦执行桥：用于执行、校验、回读和取证式 exploration 的开盘啦 APP 任务。适用于抓市场情绪、排行、连板、资金、题材、个股、板块、龙虎榜，查询最近运行状态，读取已有结果，或按明确任务收集页面证据包。"
 ---
 
-# 开盘啦通用采集桥
+# 开盘啦执行桥
 
-这个 skill 不是“某几个 preset 的说明书”，而是一个**分层的开盘啦采集桥**：
+这个 skill 现在应按**严格边界**理解：
 
-- 已注册页面：稳定执行、稳定验真
-- 探索模式：先摸清页面怎么抓，再决定要不要沉淀
-- 回读/状态：消费已有运行结果，不重复抓取
+- **OpenClaw / AI**：理解用户意图、决定策略、决定下一步、决定是否 ask human、决定是否 promote、决定如何对外解释
+- **Kaipanla bridge / runtime**：像一只“手”一样执行动作、抓包、落盘、回读、校验产物完整性、输出事实证据
 
-一句话边界：
+一句话：
 
-**OpenClaw 负责理解目标、选择策略、消费结果；Kaipanla runtime 负责执行页面动作、抓包解析、产出证据、完成验真。**
+**bridge 不是裁判，不是分析师，不是路由器；它只是执行工具和证据搬运工。**
 
 ---
 
-## 1. 职责边界
+## 1. 硬边界
 
-### OpenClaw 负责
+### AI / OpenClaw 负责
 
 - 理解自然语言请求
-- 判断这次是：
-  - `capture_registered`
-  - `capture_exploratory`
-  - `read_latest`
-  - `read_report`
-  - `status`
-  - `verify`
-  - `promote_candidate`（后续可扩）
-- 决定走已注册页面、探索模式，还是回读已有结果
-- 读取结构化结果后做人话解释
-- 判断某次 exploration 是否值得沉淀为 registered page
+- 判断当前应走：
+  - registered capture
+  - exploration capture
+  - latest
+  - report
+  - status
+  - verify
+- 决定页面/目标/轮次策略
+- 决定下一步动作
+- 决定是否 ask human
+- 决定是否把某个页面 promote 为 registered
+- 读取证据后做语义判断与对外解释
 
-### Kaipanla runtime 负责
+### bridge / runtime 负责
 
-- 接收明确任务协议
-- 执行导航、抓包、解析、落盘
-- 产出：
-  - `run.json`
-  - `task.json`
-  - `report.md`
-  - `raw jsonl`
-  - `db`
-  - `step_events`
-- 用 `verify` 做闭环验真
-- 在 exploration 模式下输出候选证据：
-  - `candidate_keys`
-  - `likely_noise_keys`
-  - `navigation_reached`
-  - `recommendation`
-  - `readiness_score`
-  - `readiness_reasons`
-  - `recommended_page_name`（仅弱归因，不是最终判断）
+- 接受明确任务参数
+- 执行页面动作
+- 启动代理、抓包、解析、落盘
+- 生成 task / run / report / raw / db 等产物
+- 输出事实型 evidence bundle
+- 检查产物是否存在、证据是否成形
+- 回读最近一次运行
 
-### bridge 默认不该做
-
-除非人类明确要求，否则不要把以下能力塞进 runtime：
+### bridge 明确不负责
 
 - 开放式自然语言理解
-- 替用户猜真实意图
-- 自行宣布“这个页面已经正式支持”
-- 投资判断 / 复盘观点 / 交易建议
-- 为一次性需求过度产品化
-- 把 bridge 变成 AI 决策引擎
+- 替用户猜真实目标
+- 页面语义识别
+- 判断“是不是目标主块”
+- 判断“是不是已经稳定抓到”
+- 推荐下一步策略
+- ask-human 业务判断
+- promote 决策
+- 投资判断 / 交易建议 / 复盘观点
+
+如果某个功能更像“理解 / 识别 / 判断 / 决策”，默认就不应属于 bridge。
 
 ---
 
-## 2. 能力分层
+## 2. 当前能力模型
 
-### A. registered reusable pages/tasks
+### A. registered
 
-适合高频、稳定、已知、可验证的任务。
+用于**已定义好的执行任务**。
 
-当前心智应是：
-- `market_emotion` 已属于这一层
-- `market_radar` / `market_featured` / `dragon_tiger` 只有在稳定后才进入这一层
-
-这一层的成功定义：
-
-- 有明确 task/page spec
-- 有稳定导航
-- 有页面级 verify
-- `verify=verified`
-- 报告可读
-- 可重复执行
-
-### B. composite tasks
-
-适合把多个已知能力拼成一个任务，例如：
-- 热点 + 资金 + 排行
-- 跨日对比
-- 情绪 + 资金节奏联合观察
-
-组合任务仍依赖已注册能力，不应绕过 verify。
-
-### C. assistant-directed exploration
-
-适合：
-- 新页面
-- 页面改版
-- 入口变化
-- 需要先探路、先摸清请求和候选字段
-
-exploration 不是“半成品 registered page”，而是一类正式协议。
-
-exploration 的成功定义是：
-
-- 获得可行动的新证据
-- 找到候选字段 / 候选块 / 导航证据
-- 帮助 OpenClaw 判断下一步怎么走
-
-**exploration 成功 ≠ 页面已正式支持。**
-
-当前推荐状态语义：
-- `not_ready`
-- `candidate_found`
-- `strong_candidate_evidence`
+特点：
+- 有固定 task/page spec
+- 有稳定导航动作
+- 有固定落盘产物
+- 可以执行 / 回读 / 校验
 
 注意：
-- `strong_candidate_evidence` 只表示候选证据较强
-- 不表示 runtime 已经决定可以 promote
-- promote 与否由 OpenClaw 结合语义与复用价值判断
+- registered 不等于 bridge 有权做复杂语义判断
+- registered verify 更接近“产物闭环是否成立”
+- 不应把 registered 的 success 话术误读成 AI 级结论
+
+### B. exploration
+
+exploration 现在应理解成：
+
+**按明确任务收集 evidence bundle 的执行模式**
+
+而不是：
+- 半个 registered
+- 候选判定器
+- 运行时智能探索器
+
+exploration 的目标不是让 runtime 说“更像哪个页面”，而是产出：
+- 动作事实
+- UI 事实
+- 请求事实
+- 结构事实
+- 产物事实
+
+供 AI 自己判断下一步。
 
 ---
 
-## 3. 什么时候走 registered，什么时候走 exploration
+## 3. 当前 exploration 输出心智
 
-### 走 registered 的情况
+exploration 只应该输出事实证据，不应该输出结论。
 
-当满足以下特征时，优先走已注册页面：
+当前重点应关注这些字段：
 
-- 页面已注册
-- 导航稳定
-- verify 规则已存在
-- 用户要的是结果，不是探路
+- `evidence_status`
+- `observed_keys`
+- `navigation_events`
+- `raw_record_count`
+- `observed_paths`
+- `evidence.action_facts`
+- `evidence.ui_facts`
+- `evidence.request_facts`
+- `evidence.structure_facts`
+- `evidence.artifact_facts`
 
-典型请求：
-- 抓今天市场情绪
-- 看最新市场情绪报告
-- 抓盘中雷达
-- 校验最近一次 run
-- 看最新状态
+### `evidence_status` 的含义
 
-### 走 exploration 的情况
+这里只表示**证据包是否成形**，不表示语义判断是否成立。
 
-当满足以下特征时，优先走 exploration：
+- `evidence_complete`：raw + step events 等核心证据存在
+- `evidence_partial`：只形成部分证据
+- `evidence_insufficient`：证据不足
 
-- 新页面
-- 页面可能改版
-- 当前不能承诺稳定支持
-- 用户在问“这个页面怎么抓”
-- 用户要先摸清入口、接口、候选字段
-
-典型请求：
-- 抓龙虎榜看看能不能形成稳定候选块
-- 看行情 tab 某个区域怎么抓
-- 先摸清这个页面的数据结构
-- 这个页面改版了，重新探一下
+它**不是**：
+- 已进入目标页
+- 已识别目标主块
+- 已稳定抓到目标数据
 
 ---
 
-## 4. 交互心智
+## 4. 不应再使用的旧心智
 
-始终先判断用户属于哪类意图，再决定执行、回读、校验，还是探索。
+以下概念不要再作为 bridge 的当前能力描述：
 
-### 执行采集
-
-当用户明确要“抓”“采集”“更新”“重跑”“执行任务”时，进入执行路径。
-
-处理原则：
-- 目标清楚：直接执行
-- 能映射到 registered：直接走 registered
-- 暂未注册但目标明确：走 exploration，并明确告诉用户这是探索抓取
-- 高歧义时最多只追问一次关键问题
-
-### 查询状态
-
-当用户想知道最近一次任务是否成功、卡在哪、产物在哪时，进入状态路径。
-
-返回应优先包含：
-- `status`
-- `verify`
-- 主要产物路径
-- 失败卡点 / error stage
-
-### 读取或解读结果
-
-当用户不是要重跑，而是要消费已有结果时，进入读取路径。
-
-处理原则：
-- 优先读最近一次成功且可校验的 run
-- 根据需要返回：
-  - 状态版
-  - 结构化版
-  - 人话版
-  - 对比版
-
-### promote 判断
-
-当用户问“能不能正式沉淀”“要不要注册成正式页面”时：
-- 由 OpenClaw 基于 exploration 结果、稳定性和复用价值判断
-- 不要把 runtime 输出直接等价成 promote 决策
-
----
-
-## 5. 核心动作
-
-优先使用 bridge 提供的稳定动作，而不是让 runtime 接开放式对话。
-
-- `capture`：执行已定义任务并写出产物
-- `explore`：执行探索任务并输出 exploration 证据；默认应受有限轮数、self-proof gate、ask-human gate 约束
-- `verify`：校验运行是否真的成立，并在 exploration 场景下判断是否仍只能视为候选证据
-- `report`：回读运行结果；如果存在 blocker，应明确写出“不能宣称稳定抓到”
-- `latest`：查看最近一次运行
-- `status`：查看最近一次运行及校验结果
-- `ask`：做自然语言到动作/参数的路由建议；不是 runtime 自己做开放式对话理解
-
----
-
-## 6. 输入输出心智
-
-### `task.json`
-至少应表达：
-- `task_id`
-- `app`
-- `page`
-- `goal`
-- `success_criteria`
-- `max_attempts`
-- `timeout_sec`
-
-exploration 任务额外关注：
-- `target_hint`
-- `intent`
-- `navigation_hint`（可选）
-- `expected_signals`（可选）
-
-### `run.json`
-用于 `verify` / `report` / `latest` / `status` 回读。
-
-### exploration 输出应关注
-
-- 是否到达目标区域
-- 命中的请求数量
 - `candidate_keys`
 - `likely_noise_keys`
-- `navigation_reached`
-- `readiness_score`
-- `readiness_reasons`
-- `recommendation`
 - `recommended_page_name`
+- `recommendation`
 - `self_proof_blockers`
-- `ask_human`（如命中停点）
+- `ask_human`
 - `safe_to_claim_stable_capture`
+- `strong_candidate_evidence`
+- `ready_to_promote`
 
-注意：
-- `recommended_page_name` 只是弱归因 / 候选页面判断
-- 不是“最终主块已确认”
-- 不是“页面已正式支持”
-- `strong_candidate_evidence` 也不自动等于“已稳定抓到目标主数据”
-- 只要 `self_proof_blockers` 非空，就不应对外宣称“已稳定抓到”
+这些要么已经被移除，要么属于 AI 层，不应再写成 runtime 输出契约。
 
----
+同样，不要再把这些口径当成当前 bridge 的真实接口：
 
-## 7. 证据与判定规则
+- `verify=verified` 才表示最终可对外宣称成功
+- `*_reached` 就等于页面已被真实确认进入
+- `expected_keys` 命中就等于页面主块已确认
 
-以下产物视为事实来源：
-
-- `runs/<task_id>.task.json`
-- `runs/<task_id>.json`
-- `reports/<task_id>.md`
-- `data/raw/<date>.jsonl`
-- `data/kaipanla.db`
-- `step_events` inside `run.json`
-
-判定规则：
-
-- `capture` 只表示任务执行过，不表示闭环成功
-- `verify` 才是最终判定门
-- `verify=verified` 才表示闭环成立
-- `step_events` 必须完整，才能证明过程真的发生过
-- exploration 的价值在于“新证据”，不是“正式支持承诺”
-- exploration 结果必须经过 `self-proof gate`
-- 只要存在 `self_proof_blockers`，就应降级为“候选证据”，而不是“已稳定抓到”
-- `safe_to_claim_stable_capture=true` 时，才允许对外使用“稳定抓到”这一类口径
+这些都容易把 bridge 重新写回“判断器”。
 
 ---
 
-## 8. 对外承诺边界
+## 5. 推荐使用方式
+
+### 当用户要“执行”
+
+让 AI 先决定：
+- 是 registered 任务还是 exploration 任务
+- 目标页/目标区域是什么
+- 是否需要继续多轮
+
+bridge 只执行。
+
+### 当用户要“看状态 / 校验 / 回读”
+
+bridge 可以做：
+- `latest`
+- `status`
+- `verify`
+- `report`
+
+但这些返回值也应优先被理解为：
+- 产物状态
+- 证据状态
+- 执行事实
+
+而不是最终业务结论。
+
+---
+
+## 6. 当前动作层
+
+优先把 bridge 当成明确命令工具来用：
+
+- `capture`
+- `explore`
+- `verify`
+- `report`
+- `latest`
+- `status`
+
+### `capture`
+执行既定任务，输出 run/task/report/raw/db。
+
+### `explore`
+执行 evidence-bundle 收集任务。
+返回事实证据，不负责解释“像不像目标页”。
+
+### `verify`
+检查：
+- 产物是否存在
+- raw 是否存在
+- report 是否存在
+- task 是否存在
+- evidence 是否完整
+
+### `report`
+回读结果。
+exploration report 应理解为**证据报告**，不是结论报告。
+
+### `latest`
+返回最近一次运行产物。
+
+### `status`
+返回最近一次运行及校验信息。
+
+---
+
+## 7. 输入输出契约心智
+
+### task
+任务应尽量是明确的、执行导向的。
+
+当前 exploration task 应优先体现：
+- `collect_evidence_bundle`
+- `persist_exploration_artifacts`
+- `runtime_role: execution_only`
+
+而不是：
+- `find_candidate_keys`
+- `produce_exploration_summary`
+
+### run
+run 是执行记录，不是业务结论。
+
+### report
+report 是产物消费层，不是任务成功定义本身。
+
+---
+
+## 8. 当前仍需谨慎的地方
+
+虽然 exploration 主链路已大幅去判断化，但仓库里仍有一些旧世界残留，尤其在 registered 路径：
+
+- `pages.py` 中的 `expected_keys` / `required_events` / `next_action_hint`
+- `verify.py` registered 分支中的 `verified / needs_attention`
+- `report.py` registered generic summary 中“页面已抓取完成 / 命中关键字段”之类口径
+- `ask` / `parse_nl_request` 仍是桥接器侧的最小语义路由
+
+所以对外描述 skill 时要诚实：
+
+**当前 exploration 边界已经基本拉正；registered 路径仍有历史语义残留，后续还需继续清理。**
+
+---
+
+## 9. 对外承诺边界
 
 可以承诺：
 
-1. 已注册页面可稳定抓取与验真
-2. exploration 模式可以帮助摸清新页面怎么抓
-3. 页面改版后可以先快速重新探路
+- bridge 可以执行开盘啦任务并落盘
+- bridge 可以输出 evidence bundle
+- bridge 可以回读和校验已有运行产物
+- bridge 可以作为 AI 的执行工具
 
-不应该承诺：
+不应承诺：
 
-1. 任意页面立即稳定支持
-2. 一次 exploration 成功就等于正式支持
-3. runtime 自己会理解无限自然语言和无限页面语义
-4. bridge 自己会决定 promote
-5. 仅凭 `strong_candidate_evidence` 就能对外宣称“已稳定抓到目标主块”
-
----
-
-## 9. 当前试用口径
-
-按当前实现，建议这样对外使用：
-
-### 已可试用
-- registered page capture / verify / report / latest / status
-- exploration-first 抓新页面或不稳定页面
-- 输出候选证据供 OpenClaw 判断下一步
-
-### 暂不应过度承诺
-- 把 exploration 结果直接当正式产品化支持
-- 把 `strong_candidate_evidence` 解释为“可以自动 promote”
-- 把 runtime 输出当成最终语义判断
-- 在 `self_proof_blockers` 未清空前，对外说“已稳定抓到目标页面主数据”
-
-如果 exploration 已经输出清晰证据，但页面是否值得沉淀仍不确定，允许继续停留在 `exploration-first` 状态。
+- bridge 自己能理解任意开盘啦页面语义
+- bridge 自己能判断是否真正进入目标页主块
+- bridge 自己能判断是否已经稳定抓到目标数据
+- bridge 自己能决定下一轮怎么探索
+- bridge 自己能 ask human
+- bridge 自己能 promote 页面
 
 ---
 
-## 10. 默认策略
+## 10. 典型协作方式
 
-### 明确请求
+正确协作顺序应该是：
 
-如果用户已明确指定页面、模块、结果类型，直接执行或回读，不要多问。
+1. AI 理解用户要什么
+2. AI 生成明确任务
+3. bridge 执行动作并产出证据
+4. AI 读取 evidence bundle
+5. AI 判断当前更接近什么、下一步做什么、是否 ask human、是否停止
 
-### 泛化但可默认
+而不是：
 
-如果用户表达较泛，例如：
-- 抓一下开盘啦最新状况
-- 看看今天怎么样
+1. 用户说一句模糊话
+2. bridge 自己理解意图
+3. bridge 自己判断像哪个页面
+4. bridge 自己决定继续还是停
+5. AI 只复述 bridge 的弱判断
 
-且系统存在默认预设任务，可明确告诉用户：
-- 先按默认预设执行（例如市场情绪）
-- 如果要改成排行、资金、连板、龙虎榜或其他页面，可以直接指定
-
-### 高歧义请求
-
-如果无法判断用户到底想抓哪个方向，只追问一次最关键问题。
-
-推荐追问方式：
-- 你这次想抓哪个方向：市场情绪、排行/连板、资金节奏、龙虎榜，还是你指定的页面？
-
-不要连环追问，不要替用户脑补过多。
-
-### exploration 默认闭环
-
-当进入 exploration 时，默认按“有限自动探索 + 到点刹车”的心智处理：
-
-- 默认不是只跑一轮就下结论
-- 允许做 2~3 轮最小调整
-- 每轮都必须重新检查证据是否增信
-- 如果证据没有改善，或 `self_proof_blockers` 持续存在，应触发 `ask_human`
-- `ask_human` 的目标是收窄目标范围，而不是继续盲猜
-
-推荐 ask-human 方式：
-- 你要锁定的是页面主列表/主块，还是页面内任意相关数据？
-
-不要无限自动 exploration，不要为了避免提问而硬凑结论。
+后者是明确要避免的。
 
 ---
 
-## 11. 输出分层
-
-### 状态版
-
-适合快速确认任务是否跑通。
-
-应包含：
-- run id / task id
-- `status`
-- `verify`
-- 主要产物路径
-- 失败步骤或错误摘要
-
-### 结构化版
-
-适合程序消费或人工复查。
-
-应优先引用：
-- JSON 结果
-- 模块统计
-- `market_summary`
-- `day_compare`
-- candidate/noise/readiness 证据字段
-
-### 人话版
-
-适合老板直接阅读。
-
-应输出：
-- 简洁结论
-- 热点 / 资金 / 风险 / 观察点
-- 必要时说明“这是 registered 结果”还是“这是 exploration 证据”
-
-原则：
-
-**摘要是结果消费层，不是采集成功定义。**
-
----
-
-## 12. 覆盖范围
-
-优先处理这些结构化内容：
-
-- A 股行情
-- 板块
-- 个股
-- 打板 / 连板
-- 涨停 / 炸板 / 跌停
-- 龙虎榜
-- 资金流向
-- 市场情绪
-- 题材 / 热点
-
-可兼容但不作为主目标：
-
-- 全球入口里的可结构化行情信息
-- 首页消息 / 资讯中稳定可抽取的行情提示
-
-不纳入边界：
-
-- 交易执行
-- 投资建议
-- 通用新闻摘要
-- 其他 App
-- 需要人工解释的大段文本分析
-
----
-
-## 13. 定位约定
-
-- 首次使用且无法定位仓库时，先向人类确认 xhs-scraper 仓库根目录的绝对路径。
-- 确认后，将该路径写入当前 skill 目录下的 `repo-root.txt`（仅一行，不带解释），用于后续持久化。
-- launcher 会优先读取 `repo-root.txt`，再读 `OPENCLAW_KPL_REPO_ROOT` / `KPL_REPO_ROOT`，最后才向上搜索当前工作目录。
-- launcher 在定位到仓库根目录后会自动切换到该目录再执行命令。
-- 如果命令要显式指定仓库根目录，可用 `--repo-root`。
-- 除非人类明确说明仓库迁移或 `repo-root.txt` 已失效，否则不要重复询问路径。
-
----
-
-## 14. 调用方式
-
-将本 skill 目录放入 OpenClaw 可扫描的 `skills/` 目录后直接使用。
+## 11. 调用方式
 
 优先使用 bundled launcher：
 
 ```bash
 bash scripts/kpl_bridge.sh capture --task <task.json>
-bash scripts/kpl_bridge.sh explore --task <task.json>
+bash scripts/kpl_bridge.sh explore <target-text> --preset <page>
 bash scripts/kpl_bridge.sh verify --run <run.json>
 bash scripts/kpl_bridge.sh report --run <run.json>
 bash scripts/kpl_bridge.sh latest
 bash scripts/kpl_bridge.sh status
 ```
 
-也可以直接调用机器可读桥接：
+也可直接调用工具：
 
 ```bash
 python3 scripts/kpl_tool.py capture --task <task.json>
-python3 scripts/kpl_tool.py explore --task <task.json>
+python3 scripts/kpl_tool.py explore <target-text> --preset <page>
 python3 scripts/kpl_tool.py verify --run <run.json>
 python3 scripts/kpl_tool.py report --run <run.json>
 python3 scripts/kpl_tool.py latest
 python3 scripts/kpl_tool.py status
 ```
 
-`scripts/run_kpl_task.py` 只用于人工或手动触发。
+注意：
+- exploration 现在应尽量显式给 `--preset`
+- 不要把 `explore` 当成 runtime 自己“理解你到底想抓什么”的入口
 
 ---
 
-## 15. 不要做
+## 12. 不要做
 
-- 不要把某一个 preset 误当成整个 skill 的全部能力
-- 不要把“摘要输出”当成采集成功证明
-- 不要把一次 exploration 成功当成正式支持
-- 不要把 `strong_candidate_evidence` 误当成 promote 决策
-- 不要跳过 `verify`
-- 不要把 `capture` 当成成功证明
-- 不要依赖内部类名、函数名或目录结构作为外部协议
-- 不要让 runtime 偷做理解/决策层工作
+- 不要把 bridge 写成 AI
+- 不要把 evidence bundle 写成 candidate judgment
+- 不要把 `*_reached` 当成真实页面确认
+- 不要把 `expected_keys` 命中当成主块确认
+- 不要把 report 当成成功证明
+- 不要让 bridge 决定 ask-human / promote / strategy
+- 不要在 skill 文档里继续保留已经废弃的 exploration 旧字段和旧状态名
+
+如果要判断“这是不是目标页 / 是否稳定 / 下一轮怎么走”，那一步应该回到 AI。
