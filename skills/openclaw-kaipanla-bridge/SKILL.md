@@ -1,245 +1,388 @@
 ---
 name: openclaw-kaipanla-bridge
-description: "开盘啦通用采集桥：用于执行、校验、回读和解读用户指定的开盘啦 APP 采集任务。当用户要抓取开盘啦里的市场情绪、排行、连板、资金、题材、个股、板块，查询最近一次运行状态，读取最新结果，或让系统总结某次抓取结果时触发。"
+description: "开盘啦通用采集桥：用于执行、校验、回读和探索用户指定的开盘啦 APP 采集任务。当用户要抓取开盘啦里的市场情绪、排行、连板、资金、题材、个股、板块、龙虎榜，查询最近一次运行状态，读取最新结果，或先探索某个页面/区域怎么抓时触发。"
 ---
 
 # 开盘啦通用采集桥
 
-这个 skill 的身份不是“固定抓某一个页面”。
+这个 skill 不是“某几个 preset 的说明书”，而是一个**分层的开盘啦采集桥**：
 
-它的职责是：
+- 已注册页面：稳定执行、稳定验真
+- 探索模式：先摸清页面怎么抓，再决定要不要沉淀
+- 回读/状态：消费已有运行结果，不重复抓取
 
-- 接收人类指定的开盘啦采集目标
-- 把目标转成可执行任务
-- 执行采集并落盘
-- 返回状态、产物和结构化结果
-- 在需要时，再对结果做自然语言解读
+一句话边界：
 
-默认预设任务可以存在，但**预设不是本体**。例如 `market_emotion` 只是一个常用预设，不代表这个 skill 只能做市场情绪页。
+**OpenClaw 负责理解目标、选择策略、消费结果；Kaipanla runtime 负责执行页面动作、抓包解析、产出证据、完成验真。**
 
-## 职责边界
+---
 
-一句话记忆：
+## 1. 职责边界
 
-**OpenClaw 负责理解与路由，Kaipanla runtime 负责执行与验证。**
+### OpenClaw 负责
 
-### OpenClaw 应负责
+- 理解自然语言请求
+- 判断这次是：
+  - `capture_registered`
+  - `capture_exploratory`
+  - `read_latest`
+  - `read_report`
+  - `status`
+  - `verify`
+  - `promote_candidate`（后续可扩）
+- 决定走已注册页面、探索模式，还是回读已有结果
+- 读取结构化结果后做人话解释
+- 判断某次 exploration 是否值得沉淀为 registered page
 
-- 理解人类自然语言
-- 判断是执行采集、查询状态、读取结果，还是进入探索模式
-- 高歧义时只追问一次最关键问题
-- 将自然语言映射成 registered task / exploration task / 输出偏好
-- 读取结构化结果后再做人话解释
-- 判断某次探索是否值得沉淀为可复用页面或脚本
+### Kaipanla runtime 负责
 
-### Kaipanla runtime 应负责
+- 接收明确任务协议
+- 执行导航、抓包、解析、落盘
+- 产出：
+  - `run.json`
+  - `task.json`
+  - `report.md`
+  - `raw jsonl`
+  - `db`
+  - `step_events`
+- 用 `verify` 做闭环验真
+- 在 exploration 模式下输出候选证据：
+  - `candidate_keys`
+  - `likely_noise_keys`
+  - `navigation_reached`
+  - `recommendation`
+  - `readiness_score`
+  - `readiness_reasons`
+  - `recommended_page_name`（仅弱归因，不是最终判断）
 
-- 接收任务定义
-- 导航、抓取、解析、落盘
-- 产出 run / report / raw / db / verification
-- 用 `verify` 作为成功判定门
-- 在探索模式下输出候选 key、候选主数据、导航命中情况与是否建议沉淀的证据
+### bridge 默认不该做
 
-### 不要混淆
+除非人类明确要求，否则不要把以下能力塞进 runtime：
 
-- 不要把 OpenClaw 误当成“万能采集器”
-- 不要把 Kaipanla runtime 误当成“自然语言对话系统”
-- 不要因为 AI 能理解一句话，就假设底层已经支持抓 App 内所有信息
+- 开放式自然语言理解
+- 替用户猜真实意图
+- 自行宣布“这个页面已经正式支持”
+- 投资判断 / 复盘观点 / 交易建议
+- 为一次性需求过度产品化
+- 把 bridge 变成 AI 决策引擎
 
-当前正确目标是：
+---
 
-**支持越来越多明确可定义、可验证的开盘啦采集任务，并支持由 OpenClaw 指挥的探索抓取。**
+## 2. 能力分层
 
-而不是：
+### A. registered reusable pages/tasks
 
-**承诺采集这个 App 上全部信息，或者一次探索成功就宣称已经稳定支持。**
+适合高频、稳定、已知、可验证的任务。
 
-## 能力分层
+当前心智应是：
+- `market_emotion` 已属于这一层
+- `market_radar` / `market_featured` / `dragon_tiger` 只有在稳定后才进入这一层
 
-### 1. 已注册复用模式（registered reusable pages/tasks）
-
-适合高频、稳定、已知、可验证的任务。当前 `market_emotion` 属于这一层；后续 `market_radar`、`market_featured`、`dragon_tiger` 这类页面也应在验证稳定后归入这一层。
-
-这一层的成功标准是：
+这一层的成功定义：
 
 - 有明确 task/page spec
 - 有稳定导航
 - 有页面级 verify
-- `verify=verified` 才算闭环成立
+- `verify=verified`
+- 报告可读
+- 可重复执行
 
-### 2. 组合任务模式（composite tasks）
+### B. composite tasks
 
-适合把多个已知能力拼成一个任务，例如“热点 + 资金 + 排行 + 跨日对比”。
+适合把多个已知能力拼成一个任务，例如：
+- 热点 + 资金 + 排行
+- 跨日对比
+- 情绪 + 资金节奏联合观察
 
-组合任务本质上仍依赖已注册能力，不应绕过 verify。
+组合任务仍依赖已注册能力，不应绕过 verify。
 
-### 3. 探索模式（assistant-directed exploration）
+### C. assistant-directed exploration
 
-适合摸新页面、新链路、页面变化后的重新识别。
+适合：
+- 新页面
+- 页面改版
+- 入口变化
+- 需要先探路、先摸清请求和候选字段
 
-这一层不是“半成品 preset”，而是一类独立能力：
+exploration 不是“半成品 registered page”，而是一类正式协议。
 
-- 由 OpenClaw 决定这次是否进入探索
-- runtime 负责执行探索导航、抓包、候选字段识别和证据产出
-- exploration 的成功定义是“获得新证据 / 找到候选主数据”，不是“已经正式支持这个页面”
+exploration 的成功定义是：
 
-不默认承诺给用户稳定使用，但允许作为研发与过渡手段。
+- 获得可行动的新证据
+- 找到候选字段 / 候选块 / 导航证据
+- 帮助 OpenClaw 判断下一步怎么走
 
-## 交互心智
+**exploration 成功 ≠ 页面已正式支持。**
 
-始终先判断用户属于哪一类意图，再决定是否执行、追问或回读已有结果。
+当前推荐状态语义：
+- `not_ready`
+- `candidate_found`
+- `strong_candidate_evidence`
 
-### 1. 执行采集
+注意：
+- `strong_candidate_evidence` 只表示候选证据较强
+- 不表示 runtime 已经决定可以 promote
+- promote 与否由 OpenClaw 结合语义与复用价值判断
+
+---
+
+## 3. 什么时候走 registered，什么时候走 exploration
+
+### 走 registered 的情况
+
+当满足以下特征时，优先走已注册页面：
+
+- 页面已注册
+- 导航稳定
+- verify 规则已存在
+- 用户要的是结果，不是探路
+
+典型请求：
+- 抓今天市场情绪
+- 看最新市场情绪报告
+- 抓盘中雷达
+- 校验最近一次 run
+- 看最新状态
+
+### 走 exploration 的情况
+
+当满足以下特征时，优先走 exploration：
+
+- 新页面
+- 页面可能改版
+- 当前不能承诺稳定支持
+- 用户在问“这个页面怎么抓”
+- 用户要先摸清入口、接口、候选字段
+
+典型请求：
+- 抓龙虎榜看看能不能形成稳定候选块
+- 看行情 tab 某个区域怎么抓
+- 先摸清这个页面的数据结构
+- 这个页面改版了，重新探一下
+
+---
+
+## 4. 交互心智
+
+始终先判断用户属于哪类意图，再决定执行、回读、校验，还是探索。
+
+### 执行采集
 
 当用户明确要“抓”“采集”“更新”“重跑”“执行任务”时，进入执行路径。
 
-典型表达：
+处理原则：
+- 目标清楚：直接执行
+- 能映射到 registered：直接走 registered
+- 暂未注册但目标明确：走 exploration，并明确告诉用户这是探索抓取
+- 高歧义时最多只追问一次关键问题
 
-- 抓一下开盘啦今天的市场情绪
-- 采集开盘啦排行和资金节奏
-- 更新一下今天的数据
-- 跑一次开盘啦任务
-- 抓今天开盘啦里医药和芯片相关信号
+### 查询状态
+
+当用户想知道最近一次任务是否成功、卡在哪、产物在哪时，进入状态路径。
+
+返回应优先包含：
+- `status`
+- `verify`
+- 主要产物路径
+- 失败卡点 / error stage
+
+### 读取或解读结果
+
+当用户不是要重跑，而是要消费已有结果时，进入读取路径。
 
 处理原则：
+- 优先读最近一次成功且可校验的 run
+- 根据需要返回：
+  - 状态版
+  - 结构化版
+  - 人话版
+  - 对比版
 
-- 如果用户目标足够清楚，直接执行。
-- 如果能稳定映射到现有预设任务，允许直接按预设执行。
-- 如果只是“最新状况”“看看开盘啦”这类泛化表达，且存在默认预设，可以明确告诉用户“我先按默认预设执行”。
-- 如果歧义很大，不要自作主张；只追问一次最关键的缺失信息。
+### promote 判断
 
-### 2. 查询运行状态
+当用户问“能不能正式沉淀”“要不要注册成正式页面”时：
+- 由 OpenClaw 基于 exploration 结果、稳定性和复用价值判断
+- 不要把 runtime 输出直接等价成 promote 决策
 
-当用户想知道最近一次任务有没有成功、卡在哪、产物在哪时，进入状态查询路径。
+---
 
-典型表达：
+## 5. 核心动作
 
-- 看一下开盘啦最近一次运行状态
-- 最近一次成功没
-- 开盘啦任务报错了吗
-- 看最新 run
+优先使用 bridge 提供的稳定动作，而不是让 runtime 接开放式对话。
 
-处理原则：
+- `capture`：执行已定义任务并写出产物
+- `explore`：执行探索任务并输出 exploration 证据
+- `verify`：校验运行是否真的成立
+- `report`：回读运行结果
+- `latest`：查看最近一次运行
+- `status`：查看最近一次运行及校验结果
+- `ask`：做自然语言到动作/参数的路由建议；不是 runtime 自己做开放式对话理解
 
-- 优先返回最近一次运行的 `status` / `verify` 结果。
-- 明确说清：是否成功、校验是否通过、主要产物位置、如失败则卡点是什么。
+---
 
-### 3. 读取或解读结果
+## 6. 输入输出心智
 
-当用户不是要重跑，而是想消费已有结果时，进入结果读取路径。
+### `task.json`
+至少应表达：
+- `task_id`
+- `app`
+- `page`
+- `goal`
+- `success_criteria`
+- `max_attempts`
+- `timeout_sec`
 
-典型表达：
+exploration 任务额外关注：
+- `target_hint`
+- `intent`
+- `navigation_hint`（可选）
+- `expected_signals`（可选）
 
-- 看看今天的市场情况
-- 总结一下开盘啦最新抓取结果
-- 读一下最新报告
-- 对比今天和昨天
-- 给我人话版总结
+### `run.json`
+用于 `verify` / `report` / `latest` / `status` 回读。
 
-处理原则：
+### exploration 输出应关注
 
-- 优先读取最近一次成功且可校验的 run。
-- 根据用户需求返回状态版、结构化版、人话版或对比版。
-- 不要把“解读”误当成“采集本身”。
+- 是否到达目标区域
+- 命中的请求数量
+- `candidate_keys`
+- `likely_noise_keys`
+- `navigation_reached`
+- `readiness_score`
+- `readiness_reasons`
+- `recommendation`
+- `recommended_page_name`
 
-## 任务定义原则
+注意：
+- `recommended_page_name` 只是弱归因 / 候选页面判断
+- 不是“最终主块已确认”
+- 不是“页面已正式支持”
 
-这个 skill 支持两层任务来源：
+---
 
-### A. 预设任务
+## 7. 证据与判定规则
 
-适合高频、已知、可稳定执行的任务。
+以下产物视为事实来源：
 
-例如：
+- `runs/<task_id>.task.json`
+- `runs/<task_id>.json`
+- `reports/<task_id>.md`
+- `data/raw/<date>.jsonl`
+- `data/kaipanla.db`
+- `step_events` inside `run.json`
 
-- `market_emotion`
-- `ranking_focus`
-- `money_flow`
-- `strong_stocks`
+判定规则：
 
-这些预设只是快捷入口，不是 skill 的边界。
+- `capture` 只表示任务执行过，不表示闭环成功
+- `verify` 才是最终判定门
+- `verify=verified` 才表示闭环成立
+- `step_events` 必须完整，才能证明过程真的发生过
+- exploration 的价值在于“新证据”，不是“正式支持承诺”
 
-### B. 自定义任务
+---
 
-当用户不是引用预设，而是用自然语言描述采集目标时，应把用户意图映射成任务规格，而不是强行套到某个固定模板。
+## 8. 对外承诺边界
 
-例如：
+可以承诺：
 
-- 抓行情页里的排行、资金、风口异动
-- 只采集情绪页，不用做人话总结
-- 抓今天的市场情绪，并和上个交易日比较
+1. 已注册页面可稳定抓取与验真
+2. exploration 模式可以帮助摸清新页面怎么抓
+3. 页面改版后可以先快速重新探路
 
-如果当前实现暂时还不支持完整自定义任务，也要**明确说明当前先按哪个预设/近似任务执行**，不要假装已经完全理解。
+不应该承诺：
 
-## 默认策略
+1. 任意页面立即稳定支持
+2. 一次 exploration 成功就等于正式支持
+3. runtime 自己会理解无限自然语言和无限页面语义
+4. bridge 自己会决定 promote
+
+---
+
+## 9. 当前试用口径
+
+按当前实现，建议这样对外使用：
+
+### 已可试用
+- registered page capture / verify / report / latest / status
+- exploration-first 抓新页面或不稳定页面
+- 输出候选证据供 OpenClaw 判断下一步
+
+### 暂不应过度承诺
+- 把 exploration 结果直接当正式产品化支持
+- 把 `strong_candidate_evidence` 解释为“可以自动 promote”
+- 把 runtime 输出当成最终语义判断
+
+如果 exploration 已经输出清晰证据，但页面是否值得沉淀仍不确定，允许继续停留在 `exploration-first` 状态。
+
+---
+
+## 10. 默认策略
 
 ### 明确请求
 
-如果用户已经明确指定页面、模块、结果类型，直接执行或回读，不要多问。
+如果用户已明确指定页面、模块、结果类型，直接执行或回读，不要多问。
 
 ### 泛化但可默认
 
 如果用户表达较泛，例如：
-
 - 抓一下开盘啦最新状况
 - 看看今天怎么样
 
-且系统确有默认预设任务可用，可以这样处理：
-
-- 明确告诉用户：先按默认预设执行（例如市场情绪页）
-- 同时说明：如果想改成排行、资金、连板或其他页面，可以直接指定
+且系统存在默认预设任务，可明确告诉用户：
+- 先按默认预设执行（例如市场情绪）
+- 如果要改成排行、资金、连板、龙虎榜或其他页面，可以直接指定
 
 ### 高歧义请求
 
-如果无法判断用户到底想抓哪个方向，就追问一次最关键问题。
+如果无法判断用户到底想抓哪个方向，只追问一次最关键问题。
 
 推荐追问方式：
-
-- 你这次想抓哪个方向：市场情绪、排行/连板、资金节奏，还是你指定的页面？
+- 你这次想抓哪个方向：市场情绪、排行/连板、资金节奏、龙虎榜，还是你指定的页面？
 
 不要连环追问，不要替用户脑补过多。
 
-## 输出分层
+---
 
-采集完成后，按用户意图选择最合适的输出层级。
+## 11. 输出分层
 
-### 1. 状态版
+### 状态版
 
 适合快速确认任务是否跑通。
 
 应包含：
-
 - run id / task id
 - `status`
-- `verify` 结果
+- `verify`
 - 主要产物路径
-- 如果失败，失败步骤或错误摘要
+- 失败步骤或错误摘要
 
-### 2. 结构化版
+### 结构化版
 
 适合程序消费或人工复查。
 
 应优先引用：
-
 - JSON 结果
 - 模块统计
 - `market_summary`
 - `day_compare`
-- 关键字段与 counts
+- candidate/noise/readiness 证据字段
 
-### 3. 人话版
+### 人话版
 
 适合老板直接阅读。
 
 应输出：
-
 - 简洁结论
 - 热点 / 资金 / 风险 / 观察点
-- 如已实现，可用 trader-style / 复盘口吻总结
+- 必要时说明“这是 registered 结果”还是“这是 exploration 证据”
 
-原则：**摘要是结果消费层，不是采集成功的定义。**
+原则：
 
-## 覆盖范围
+**摘要是结果消费层，不是采集成功定义。**
+
+---
+
+## 12. 覆盖范围
 
 优先处理这些结构化内容：
 
@@ -266,15 +409,9 @@ description: "开盘啦通用采集桥：用于执行、校验、回读和解读
 - 其他 App
 - 需要人工解释的大段文本分析
 
-## 核心动作
+---
 
-- `capture`：执行采集并写出产物
-- `verify`：校验运行是否真的成立
-- `report`：回读运行结果
-- `latest`：查看最近一次运行
-- `status`：查看最近一次运行及校验结果
-
-## 定位约定
+## 13. 定位约定
 
 - 首次使用且无法定位仓库时，先向人类确认 xhs-scraper 仓库根目录的绝对路径。
 - 确认后，将该路径写入当前 skill 目录下的 `repo-root.txt`（仅一行，不带解释），用于后续持久化。
@@ -283,7 +420,9 @@ description: "开盘啦通用采集桥：用于执行、校验、回读和解读
 - 如果命令要显式指定仓库根目录，可用 `--repo-root`。
 - 除非人类明确说明仓库迁移或 `repo-root.txt` 已失效，否则不要重复询问路径。
 
-## 调用方式
+---
+
+## 14. 调用方式
 
 将本 skill 目录放入 OpenClaw 可扫描的 `skills/` 目录后直接使用。
 
@@ -291,6 +430,7 @@ description: "开盘啦通用采集桥：用于执行、校验、回读和解读
 
 ```bash
 bash scripts/kpl_bridge.sh capture --task <task.json>
+bash scripts/kpl_bridge.sh explore --task <task.json>
 bash scripts/kpl_bridge.sh verify --run <run.json>
 bash scripts/kpl_bridge.sh report --run <run.json>
 bash scripts/kpl_bridge.sh latest
@@ -301,6 +441,7 @@ bash scripts/kpl_bridge.sh status
 
 ```bash
 python3 scripts/kpl_tool.py capture --task <task.json>
+python3 scripts/kpl_tool.py explore --task <task.json>
 python3 scripts/kpl_tool.py verify --run <run.json>
 python3 scripts/kpl_tool.py report --run <run.json>
 python3 scripts/kpl_tool.py latest
@@ -309,45 +450,15 @@ python3 scripts/kpl_tool.py status
 
 `scripts/run_kpl_task.py` 只用于人工或手动触发。
 
-## 输入约定
+---
 
-### `task.json`
-至少包含：
+## 15. 不要做
 
-- `task_id`
-- `app`
-- `page`
-- `goal`
-- `success_criteria`
-- `max_attempts`
-- `timeout_sec`
-
-### `run.json`
-`verify` 和 `report` 读取运行结果文件。
-
-## 证据
-
-以下产物视为事实来源：
-
-- `runs/<task_id>.task.json`
-- `runs/<task_id>.json`
-- `reports/<task_id>.md`
-- `data/raw/<date>.jsonl`
-- `data/kaipanla.db`
-- `step_events` inside `run.json`
-
-## 判定规则
-
-- `capture` 只表示任务被执行过，不表示闭环成功。
-- `verify` 是最终判定门。
-- `verify=verified` 才表示闭环成立。
-- `step_events` 必须完整，才能证明过程真的发生过。
-
-## 不要做
-
-- 不要把某一个预设任务误当成整个 skill 的全部能力。
-- 不要把“摘要输出”当成采集成功证明。
-- 不要把读取源码当作接入方式。
-- 不要依赖内部类名、函数名或目录结构。
-- 不要跳过 `verify`。
-- 不要把 `capture` 当成成功证明。
+- 不要把某一个 preset 误当成整个 skill 的全部能力
+- 不要把“摘要输出”当成采集成功证明
+- 不要把一次 exploration 成功当成正式支持
+- 不要把 `strong_candidate_evidence` 误当成 promote 决策
+- 不要跳过 `verify`
+- 不要把 `capture` 当成成功证明
+- 不要依赖内部类名、函数名或目录结构作为外部协议
+- 不要让 runtime 偷做理解/决策层工作
