@@ -1,0 +1,119 @@
+"""AI-facing minimal exploration loop helpers.
+
+这一层不替代 OpenClaw 本体，也不让 runtime 自己做业务判断。
+它只提供一个最小、可测试的“自然语言目标 -> exploration round plan -> round decision”封装，
+用于支撑 Round2 的最小可试用闭环。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, asdict
+from typing import Any
+
+from src.apps.kaipanla.exploration import ExplorationResult
+from src.apps.kaipanla.pages import normalize_page_name
+
+
+@dataclass(slots=True)
+class LoopPlan:
+    mode: str
+    target_hint: str
+    preset: str
+    reason: str
+    round_index: int
+    max_rounds: int
+    navigation_hint: str
+    action_plan: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class LoopDecision:
+    decision: str
+    reason: str
+    next_round_index: int | None = None
+    next_navigation_hint: str = ""
+    next_action_plan: list[dict[str, Any]] | None = None
+    user_message: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+TARGET_PAGE_HINTS = {
+    "龙虎榜": "dragon_tiger",
+    "龙虎": "dragon_tiger",
+    "情绪": "market_emotion",
+    "盘中雷达": "market_radar",
+    "精选": "market_featured",
+}
+
+
+def infer_exploration_preset(user_text: str) -> tuple[str, str]:
+    text = (user_text or "").strip()
+    for needle, preset in TARGET_PAGE_HINTS.items():
+        if needle in text:
+            return preset, needle
+    return normalize_page_name("market_emotion"), text or "市场情绪"
+
+
+def build_round1_plan(user_text: str, *, max_rounds: int = 2) -> LoopPlan:
+    preset, target_hint = infer_exploration_preset(user_text)
+    return LoopPlan(
+        mode="exploration",
+        target_hint=target_hint,
+        preset=preset,
+        reason="用户意图包含未知/待验证页面目标，先走 exploration 收集证据",
+        round_index=1,
+        max_rounds=max(1, int(max_rounds or 2)),
+        navigation_hint="优先验证目标入口点击后是否出现新的 UI/请求证据",
+        action_plan=[],
+    )
+
+
+def decide_next_step(result: ExplorationResult) -> LoopDecision:
+    evidence = result.evidence or {}
+    ui_facts = evidence.get("ui_facts") or {}
+    request_facts = evidence.get("request_facts") or {}
+    structure_facts = evidence.get("structure_facts") or {}
+
+    ui_changed = bool(ui_facts.get("ui_changed"))
+    raw_record_count = int(request_facts.get("raw_record_count") or 0)
+    candidate_count = len(structure_facts.get("candidate_structures") or [])
+    noise_count = len(structure_facts.get("noise_structures") or [])
+    current_round = max(1, int(result.round_index or 1))
+    max_rounds = max(1, int(result.max_rounds or 1))
+
+    if result.evidence_status == "evidence_insufficient":
+        return LoopDecision(
+            decision="ask_human",
+            reason="当前证据不足，继续探索容易变成碰运气",
+            user_message="这轮拿到的证据太弱，继续下去更像碰运气。你是要严格确认龙虎榜主块，还是先接受相关候选证据？",
+        )
+
+    if current_round >= max_rounds:
+        return LoopDecision(
+            decision="stop",
+            reason="已到当前轮次上限，必须停止并对外解释当前证据强度",
+            user_message="我已经按当前上限完成探索。动作执行和证据已收集，但还不能仅凭这些确认目标主块已经命中。",
+        )
+
+    if ui_changed and raw_record_count > 0 and candidate_count > max(0, noise_count):
+        return LoopDecision(
+            decision="continue",
+            reason="当前已有增信证据，可以再做一轮最小动作来缩小不确定性",
+            next_round_index=current_round + 1,
+            next_navigation_hint="基于上一轮证据，优先验证目标入口后的主块是否真正刷新",
+            next_action_plan=[
+                {"action": "wait", "seconds": 2},
+                {"action": "swipe_up", "times": 1},
+            ],
+        )
+
+    return LoopDecision(
+        decision="ask_human",
+        reason="当前没有足够增信理由进入下一轮自动探索",
+        user_message="我已经拿到一轮证据，但增信还不够，下一轮如果继续会更依赖猜测。你要我继续做一次最小补充探索，还是先按当前证据给你结论？",
+    )

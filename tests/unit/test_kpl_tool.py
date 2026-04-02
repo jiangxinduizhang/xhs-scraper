@@ -136,6 +136,7 @@ def test_kpl_tool_explore_dry_run(capsys):
     assert payload["execute"] is False
     assert payload["runtime_policy"]["max_rounds"] == 2
     assert payload["runtime_policy"]["ai_must_decide_next_step"] is True
+    assert payload["planner"]["mode"] == "exploration"
 
 
 def test_kpl_tool_explore_dry_run_supports_round_control(capsys):
@@ -216,6 +217,7 @@ def test_kpl_tool_explore_exec_returns_evidence_bundle(monkeypatch, capsys):
     assert payload["requires_ai_decision"] is True
     assert payload["runtime_stop_reason"] == "evidence_bundle_collected"
     assert len(payload["rounds"]) == 1
+    assert payload["rounds"][0]["decision"]["decision"] in {"continue", "stop", "ask_human"}
 
 
 def test_kpl_tool_has_no_ask_command():

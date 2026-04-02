@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.apps.kaipanla.agent_loop import build_round1_plan, decide_next_step
 from src.apps.kaipanla.exploration import build_exploration_result
 from src.apps.kaipanla.pages import list_pages
 from src.apps.kaipanla.report import build_page_summary, render_run_report
@@ -244,21 +245,34 @@ def cmd_explore(args) -> dict:
         "visible_text_before_after": not bool(getattr(args, "no_visible_text", False)),
         "focus_post_action_window": not bool(getattr(args, "no_focus_post_action_window", False)),
     }
+    round_index = getattr(args, "round_index", 1) or 1
+    max_rounds = max(1, int(getattr(args, "max_rounds", 2) or 2))
+    action_plan = _parse_action_plan(getattr(args, "action_plan", None))
+    navigation_hint = getattr(args, "navigation_hint", "") or ""
+
+    planner = None
+    if round_index == 1 and not args.preset and not action_plan and not navigation_hint:
+        planner = build_round1_plan(args.text, max_rounds=max_rounds)
+        if planner.preset:
+            args.preset = planner.preset
+        navigation_hint = planner.navigation_hint
+        action_plan = planner.action_plan
+
     task = _load_exploration_task(
         args.text,
         args.preset,
-        navigation_hint=getattr(args, "navigation_hint", "") or "",
-        round_index=getattr(args, "round_index", 1) or 1,
-        max_rounds=getattr(args, "max_rounds", 2) or 2,
+        navigation_hint=navigation_hint,
+        round_index=round_index,
+        max_rounds=max_rounds,
         session_id=getattr(args, "session_id", "") or "",
-        action_plan=_parse_action_plan(getattr(args, "action_plan", None)),
+        action_plan=action_plan,
         capture_options=capture_options,
     )
-    max_rounds = max(1, int(getattr(args, "max_rounds", 2) or 2))
     payload = {
         "ok": True,
         "command": "explore",
         "execute": bool(args.execute),
+        "planner": planner.to_dict() if planner else None,
         "task": task.to_dict(),
         "task_meta": {
             **_task_meta(task, used_default_preset=False),
@@ -293,17 +307,21 @@ def cmd_explore(args) -> dict:
             exploration.raw_record_count,
         )
 
+        decision = decide_next_step(exploration)
         rounds.append({
             "round": round_no,
             "task": task.to_dict(),
             "run": run.to_dict(),
             "exploration": exploration.to_dict(),
+            "decision": decision.to_dict(),
         })
 
         final_run = run
         final_exploration = exploration
 
-        if exploration.evidence_status == "evidence_complete":
+        if decision.decision != "continue":
+            if round_no >= max_rounds:
+                reached_limit = True
             break
 
         no_improvement = previous_signature == current_signature
@@ -312,6 +330,12 @@ def cmd_explore(args) -> dict:
             break
 
         previous_signature = current_signature
+        task.round_index = decision.next_round_index or (round_no + 1)
+        if decision.next_navigation_hint:
+            task.notes = [note for note in task.notes if not str(note).startswith("navigation_hint:")]
+            task.notes.append(f"navigation_hint: {decision.next_navigation_hint}")
+        if decision.next_action_plan:
+            task.action_plan = list(decision.next_action_plan)
 
     payload["rounds"] = rounds
     payload["run"] = final_run.to_dict() if final_run else None
@@ -351,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_explore = sub.add_parser("explore", help="assistant-directed exploration")
     p_explore.add_argument("text", help="exploration target")
-    p_explore.add_argument("--preset", default="market_emotion", help="explicit preset/page for exploration bootstrap")
+    p_explore.add_argument("--preset", default=None, help="explicit preset/page for exploration bootstrap")
     p_explore.add_argument("--navigation-hint", default="", help="human/AI supplied navigation hint for this exploration round")
     p_explore.add_argument("--round-index", type=int, default=1, help="exploration round index")
     p_explore.add_argument("--max-rounds", type=int, default=2, help="max execution rounds before handing control back to AI")
