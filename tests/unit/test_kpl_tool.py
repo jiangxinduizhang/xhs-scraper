@@ -170,22 +170,22 @@ def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
     fake_exploration = {
         "task_id": "demo",
         "target_hint": "探索抓取龙虎榜",
-        "evidence_status": "evidence_partial",
-        "status": "evidence_partial",
-        "candidate_keys": ["List"],
-        "matched_records": 1,
-        "navigation_reached": ["dragon_tiger_reached"],
-        "likely_noise_keys": ["DaBanList"],
-        "recommendation": "已产出候选证据，但仍被公共块或泛化字段干扰，需由 AI 决定下一轮最小动作。",
-        "recommended_page_name": "dragon_tiger",
-        "evidence": {"self_proof_blockers": ["generic_list_dominant"], "control_directive": {"action": "focus_post_tap_window", "reason": "demo"}},
+        "evidence_status": "evidence_complete",
+        "status": "evidence_complete",
+        "observed_keys": ["List", "DaBanList"],
+        "navigation_events": ["market_reached", "dragon_tiger_reached"],
+        "raw_record_count": 1,
+        "observed_paths": ["/w1/api/index.php"],
+        "evidence": {},
     }
 
     class FakeExploration:
-        evidence = {"self_proof_blockers": ["generic_list_dominant"], "control_directive": {"action": "focus_post_tap_window", "reason": "demo"}}
-        evidence_status = "evidence_partial"
-        status = "evidence_partial"
-        candidate_keys = ["List"]
+        evidence = {}
+        evidence_status = "evidence_complete"
+        status = "evidence_complete"
+        observed_keys = ["List", "DaBanList"]
+        observed_paths = ["/w1/api/index.php"]
+        raw_record_count = 1
 
         def to_dict(self):
             return fake_exploration
@@ -198,6 +198,5 @@ def test_kpl_tool_explore_exec_hits_ask_human_gate(monkeypatch, capsys):
     payload = _load_stdout(capsys)
 
     assert code == 0
-    assert payload["ask_human"] is True
-    assert payload["ask_human_question"]
-    assert len(payload["rounds"]) == 2
+    assert payload["ask_human"] is False
+    assert len(payload["rounds"]) == 1

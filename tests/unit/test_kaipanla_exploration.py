@@ -27,10 +27,9 @@ def test_exploration_detector_prioritizes_target_keys(tmp_path):
 
     result = build_exploration_result("kpl-dragon-tiger-test", run, "探索抓取今天龙虎榜")
 
-    assert result.evidence_status in {"evidence_partial", "evidence_complete"}
-    assert "LongHuBang" in result.candidate_keys[:3]
-    assert result.recommended_page_name == "dragon_tiger"
-    assert result.evidence["target_profile"] == "dragon_tiger"
+    assert result.evidence_status == "evidence_complete"
+    assert "LongHuBang" in result.observed_keys[:5]
+    assert "/w1/api/index.php" in result.observed_paths
     assert any(item["name"] == "LongHuBang" for item in result.evidence["structure_facts"]["candidate_structures"])
 
 
@@ -52,12 +51,12 @@ def test_exploration_detector_marks_noise_keys(tmp_path):
 
     result = build_exploration_result("kpl-noise-test", run, "探索抓取今天龙虎榜")
 
-    assert "errcode" in result.likely_noise_keys
-    assert "t" in result.likely_noise_keys
-    assert result.evidence_status == "evidence_insufficient"
+    assert "errcode" in result.evidence["structure_facts"]["noise_keys"]
+    assert "t" in result.evidence["structure_facts"]["noise_keys"]
+    assert result.evidence_status == "evidence_complete"
 
 
-def test_exploration_self_proof_gate_blocks_generic_list_dominant_case(tmp_path):
+def test_exploration_records_generic_list_case_as_facts(tmp_path):
     raw_path = tmp_path / "20260402.jsonl"
     raw_path.write_text(
         '\n'.join([
@@ -82,9 +81,10 @@ def test_exploration_self_proof_gate_blocks_generic_list_dominant_case(tmp_path)
 
     result = build_exploration_result("kpl-generic-list-test", run, "探索抓取今天龙虎榜")
 
-    assert result.evidence_status == "evidence_partial"
-    assert "generic_list_dominant" in result.evidence["self_proof_blockers"]
-    assert "需由 AI 决定下一轮最小动作" in result.recommendation
+    assert result.evidence_status == "evidence_complete"
+    assert "List" in result.observed_keys
+    assert "DaBanList" in result.observed_keys
+    assert any(item["name"] == "List" for item in result.evidence["structure_facts"]["candidate_structures"])
 
 
 def test_exploration_evidence_includes_timing_and_shape(tmp_path):
@@ -107,11 +107,10 @@ def test_exploration_evidence_includes_timing_and_shape(tmp_path):
     )
 
     result = build_exploration_result("kpl-evidence-shape-test", run, "探索抓取今天龙虎榜")
-    scored = next(item for item in result.evidence["scored_keys"] if item["key"] == "LongHuBang")
+    structure = next(item for item in result.evidence["structure_facts"]["candidate_structures"] if item["name"] == "LongHuBang")
 
-    assert scored["timing"]["post_navigation_hits"] >= 1
-    assert scored["shape"]["kind"] == "list"
-    assert "category" in scored["noise_rationale"]
+    assert structure["post_navigation_hits"] >= 1
+    assert structure["shape"]["kind"] == "list"
     assert "action_facts" in result.evidence
     assert "request_facts" in result.evidence
     assert "structure_facts" in result.evidence

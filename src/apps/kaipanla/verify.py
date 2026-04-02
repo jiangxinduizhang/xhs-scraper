@@ -153,18 +153,10 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             checks.append("raw 样本缺失")
             ok = False
 
-        blockers = exploration.evidence.get("self_proof_blockers", []) if isinstance(exploration.evidence, dict) else []
-        ask_human = bool(blockers)
-
         details.append(f"exploration.evidence_status={exploration.evidence_status}")
-        details.append(f"candidate_keys={', '.join(exploration.candidate_keys) or '无'}")
-        details.append(f"matched_records={exploration.matched_records}")
-        details.append(f"navigation_reached={', '.join(exploration.navigation_reached) or '无'}")
-        details.append(f"recommendation={exploration.recommendation}")
-        if blockers:
-            details.append(f"self_proof_blockers={', '.join(blockers)}")
-        if ask_human:
-            details.append("ask_human=当前证据仍不足以支持稳定结论，应由 AI 或用户决定下一轮动作")
+        details.append(f"observed_keys={', '.join(exploration.observed_keys[:12]) or '无'}")
+        details.append(f"raw_record_count={exploration.raw_record_count}")
+        details.append(f"navigation_events={', '.join(exploration.navigation_events) or '无'}")
 
         status = "evidence_complete" if ok and exploration.evidence_status == "evidence_complete" else ("evidence_partial" if ok else "evidence_insufficient")
         return VerificationResult(
@@ -174,16 +166,15 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             details=details,
             selected_snapshot={
                 "target_hint": task.target_hint,
-                "candidate_keys": exploration.candidate_keys,
-                "recommended_page_name": exploration.recommended_page_name,
-                "self_proof_blockers": blockers,
+                "observed_keys": exploration.observed_keys[:12],
+                "observed_paths": exploration.observed_paths,
+                "navigation_events": exploration.navigation_events,
             },
             flags={
                 "exploration_mode": True,
-                "candidate_found": bool(exploration.candidate_keys),
+                "has_observed_keys": bool(exploration.observed_keys),
                 "evidence_complete": exploration.evidence_status == "evidence_complete",
                 "run_succeeded": result.status in ("success", "partial"),
-                "ask_human": ask_human,
                 "safe_to_claim_stable_capture": False,
             },
         )

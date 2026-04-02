@@ -164,12 +164,12 @@ def test_verify_run_exploration_mode(tmp_path):
     verification = verify_run(run_path)
     assert verification.status == "evidence_complete"
     assert verification.flags["exploration_mode"] is True
-    assert verification.flags["candidate_found"] is True
+    assert verification.flags["has_observed_keys"] is True
     assert verification.flags["evidence_complete"] is True
     assert verification.flags["safe_to_claim_stable_capture"] is False
 
 
-def test_verify_run_exploration_mode_requests_human_when_blocked(tmp_path):
+def test_verify_run_exploration_mode_never_claims_stable_capture(tmp_path):
     task = TaskSpec.for_exploration("探索抓取龙虎榜", page="dragon_tiger", preset="dragon_tiger")
     task.runs_dir = str(tmp_path / "runs")
     task.reports_dir = str(tmp_path / "reports")
@@ -199,8 +199,8 @@ def test_verify_run_exploration_mode_requests_human_when_blocked(tmp_path):
     result.save(run_path)
 
     verification = verify_run(run_path)
-    assert verification.flags["ask_human"] is True
     assert verification.flags["safe_to_claim_stable_capture"] is False
+    assert verification.flags["has_observed_keys"] is True
 
 
 def test_render_verification_summary():

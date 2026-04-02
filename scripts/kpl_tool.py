@@ -345,44 +345,42 @@ def cmd_explore(args) -> dict:
         return payload
 
     rounds = []
-    previous_blockers = None
-    previous_candidate_keys = None
+    previous_signature = None
     final_run = None
     final_exploration = None
     ask_human = False
 
     for round_no in range(1, max_rounds + 1):
         if round_no > 1:
-            task.target_hint = f"{args.text}（收紧目标：优先保留点击后时间窗与前后 UI 证据）"
-            task.notes = list(task.notes) + [f"auto_round_{round_no}: tightened target hint for evidence collection"]
+            task.notes = list(task.notes) + [f"auto_round_{round_no}: repeated evidence collection without runtime-side semantic adjustment"]
 
         run = run_task(task)
         exploration = build_exploration_result(task.task_id, run, task.target_hint or task.goal)
-        blockers = exploration.evidence.get("self_proof_blockers", []) if isinstance(exploration.evidence, dict) else []
-        current_candidate_keys = tuple(exploration.candidate_keys)
+        current_signature = (
+            tuple(exploration.observed_keys[:12]),
+            tuple(exploration.observed_paths[:6]),
+            exploration.raw_record_count,
+        )
 
         rounds.append({
             "round": round_no,
             "task": task.to_dict(),
             "run": run.to_dict(),
             "exploration": exploration.to_dict(),
-            "control_directive": exploration.evidence.get("control_directive", {}),
-            "ask_human": bool(blockers),
         })
 
         final_run = run
         final_exploration = exploration
 
-        if exploration.evidence_status == "evidence_complete" and not blockers:
+        if exploration.evidence_status == "evidence_complete":
             break
 
-        no_improvement = previous_blockers == blockers and previous_candidate_keys == current_candidate_keys
+        no_improvement = previous_signature == current_signature
         if no_improvement or round_no >= max_rounds:
             ask_human = True
             break
 
-        previous_blockers = list(blockers)
-        previous_candidate_keys = current_candidate_keys
+        previous_signature = current_signature
 
     payload["rounds"] = rounds
     payload["run"] = final_run.to_dict() if final_run else None
