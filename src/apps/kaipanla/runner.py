@@ -20,7 +20,17 @@ from src.apps.kaipanla.manifest import build_stub_manifest
 from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.report import write_run_report
 from src.apps.kaipanla.task import RunResult, TaskSpec
-from src.controller.device import PreflightError, clear_proxy, configure_proxy, connect_device, launch_app, preflight_check
+from src.controller.device import (
+    PreflightError,
+    capture_screenshot,
+    capture_ui_dump,
+    capture_visible_text,
+    clear_proxy,
+    configure_proxy,
+    connect_device,
+    launch_app,
+    preflight_check,
+)
 from src.proxy.parser import XHSParser
 
 
@@ -53,6 +63,9 @@ class KaipanlaRunner:
             started_at=self._started_at.isoformat(timespec="seconds"),
             db_path=self.task.db_path,
             next_action=self.task.next_action_hint,
+            round_index=self.task.round_index,
+            max_rounds=self.task.max_rounds,
+            session_id=self.task.session_id,
         )
 
         try:
@@ -110,35 +123,71 @@ class KaipanlaRunner:
 
     def _run_task(self, result: RunResult) -> None:
         spec = get_page_spec(self.task.page)
-        self._run_navigation(result, spec.navigation_steps)
+        steps = self.task.action_plan or spec.navigation_steps
+        self._run_navigation(result, steps)
 
     def _run_navigation(self, result: RunResult, steps: list[dict]) -> None:
         d = self.device
-        for step in steps:
-            action = step.get("action")
-            if action == "back":
-                for _ in range(int(step.get("times", 1))):
-                    try:
-                        d.press("back")
-                        time.sleep(float(step.get("sleep", 0.8)))
-                    except Exception:
-                        break
-            elif action == "tap_text":
-                self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0)))
-            elif action == "tap_text_or_fallback":
-                if not self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0))):
-                    self._tap_center_fallback(d)
-            elif action == "record":
-                self._record_step(result, str(step.get("name", "step")), str(step.get("detail", "")))
-            elif action == "sleep":
-                time.sleep(float(step.get("seconds", 1.0)))
-            elif action == "swipe_up":
-                for _ in range(int(step.get("times", 1))):
-                    width, height = d.window_size()
-                    d.swipe(width // 2, int(height * 0.75), width // 2, int(height * 0.40), duration=0.25)
-                    time.sleep(float(step.get("sleep", 1.0)))
-            else:
-                raise ValueError(f"unsupported navigation action: {action}")
+        for index, step in enumerate(steps, start=1):
+            action = str(step.get("action") or "")
+            action_id = str(step.get("name") or f"step_{index}")
+            self._record_step(result, "action_started", action_id, {
+                "action": action,
+                "index": index,
+                "round_index": self.task.round_index,
+            })
+
+            before = self._capture_action_evidence(result, action_id, phase="before")
+            executed = False
+            found = None
+            error = ""
+            try:
+                if action == "back":
+                    executed = True
+                    for _ in range(int(step.get("times", 1))):
+                        try:
+                            d.press("back")
+                            time.sleep(float(step.get("sleep", 0.8)))
+                        except Exception:
+                            break
+                elif action == "tap_text":
+                    found = self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0)))
+                    executed = bool(found)
+                elif action == "tap_text_or_fallback":
+                    found = self._click_text(d, str(step.get("text", "")), timeout=float(step.get("timeout", 2.0)))
+                    if found:
+                        executed = True
+                    else:
+                        self._tap_center_fallback(d)
+                        executed = True
+                elif action == "record":
+                    executed = True
+                    self._record_step(result, str(step.get("name", "step")), str(step.get("detail", "")))
+                elif action == "sleep":
+                    executed = True
+                    time.sleep(float(step.get("seconds", 1.0)))
+                elif action == "swipe_up":
+                    executed = True
+                    for _ in range(int(step.get("times", 1))):
+                        width, height = d.window_size()
+                        d.swipe(width // 2, int(height * 0.75), width // 2, int(height * 0.40), duration=0.25)
+                        time.sleep(float(step.get("sleep", 1.0)))
+                else:
+                    raise ValueError(f"unsupported navigation action: {action}")
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                raise
+            finally:
+                after = self._capture_action_evidence(result, action_id, phase="after")
+                self._record_step(result, "action_finished", action_id, {
+                    "action": action,
+                    "index": index,
+                    "found": found,
+                    "executed": executed,
+                    "error": error,
+                    "before": before,
+                    "after": after,
+                })
 
     def _start_proxy(self) -> None:
         manifest = build_stub_manifest()
@@ -230,6 +279,30 @@ class KaipanlaRunner:
             return 0
         return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
+    def _capture_action_evidence(self, result: RunResult, action_id: str, phase: str) -> dict:
+        capture_options = self.task.capture_options or {}
+        out: dict = {
+            "phase": phase,
+            "action_id": action_id,
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        artifact_root = Path(self.task.runs_dir) / "artifacts" / self.task.task_id
+        artifact_root.mkdir(parents=True, exist_ok=True)
+
+        if capture_options.get("screenshot_before_after", False):
+            screenshot_path = artifact_root / f"{action_id}-{phase}.png"
+            out["screenshot"] = capture_screenshot(self.device, screenshot_path)
+
+        if capture_options.get("ui_dump_before_after", False):
+            ui_dump_path = artifact_root / f"{action_id}-{phase}.xml"
+            out["ui_dump"] = capture_ui_dump(self.device, ui_dump_path)
+
+        if capture_options.get("visible_text_before_after", False):
+            out["visible_text"] = capture_visible_text(self.device)
+
+        result.artifacts.setdefault("action_evidence", []).append(out)
+        return out
+
     @staticmethod
     def _click_text(d, text: str, timeout: float = 2.0) -> bool:
         try:
@@ -248,12 +321,14 @@ class KaipanlaRunner:
         d.click(width // 2, int(height * 0.08))
 
     @staticmethod
-    def _record_step(result: RunResult | None, name: str, detail: str = "") -> None:
+    def _record_step(result: RunResult | None, name: str, detail: str = "", extra: dict | None = None) -> None:
         event = {
             "name": name,
             "detail": detail,
             "at": datetime.now().isoformat(timespec="seconds"),
         }
+        if extra:
+            event.update(extra)
         if result is not None:
             result.step_events.append(event)
 

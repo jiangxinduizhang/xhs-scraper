@@ -9,6 +9,8 @@ import socket
 import subprocess
 import time
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src import config
@@ -106,6 +108,88 @@ def _dismiss_startup_dialogs(d):
         if d(text=text).exists(timeout=1):
             d(text=text).click()
             time.sleep(0.5)
+
+
+def capture_screenshot(d, path: str | Path) -> dict:
+    """保存截图；失败时返回结构化错误，不抛异常。"""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        ok = d.screenshot(str(out))
+        return {
+            "ok": bool(ok),
+            "path": str(out),
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "error": "" if ok else "screenshot_failed",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "path": str(out),
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def capture_ui_dump(d, path: str | Path) -> dict:
+    """导出 UI hierarchy；失败时返回结构化错误。"""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        xml = d.dump_hierarchy(compressed=False, pretty=True)
+        out.write_text(xml, encoding="utf-8")
+        return {
+            "ok": True,
+            "path": str(out),
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "error": "",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "path": str(out),
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def capture_visible_text(d, limit: int = 120) -> dict:
+    """提取当前 UI 可见文本；失败时返回空列表与错误。"""
+    try:
+        xml = d.dump_hierarchy(compressed=False, pretty=False)
+        texts: list[str] = []
+        seen: set[str] = set()
+        marker = ' text="'
+        start = 0
+        while True:
+            idx = xml.find(marker, start)
+            if idx == -1:
+                break
+            idx += len(marker)
+            end = xml.find('"', idx)
+            if end == -1:
+                break
+            text = xml[idx:end].strip()
+            start = end + 1
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            texts.append(text)
+            if len(texts) >= limit:
+                break
+        return {
+            "ok": True,
+            "texts": texts,
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "error": "",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "texts": [],
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def preflight_check() -> dict:

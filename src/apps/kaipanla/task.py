@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 import json
 
 from src.apps.kaipanla.pages import build_task_defaults
@@ -43,6 +44,11 @@ class TaskSpec:
     max_attempts: int = 1
     next_action_hint: str = ""
     notes: list[str] = field(default_factory=list)
+    round_index: int = 1
+    max_rounds: int = 1
+    session_id: str = ""
+    action_plan: list[dict[str, Any]] = field(default_factory=list)
+    capture_options: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -98,6 +104,16 @@ class TaskSpec:
                 ],
                 "output": ["run", "report", "evidence_bundle"],
                 "interpretation_style": "evidence_bundle",
+                "round_index": 1,
+                "max_rounds": 1,
+                "session_id": "",
+                "action_plan": [],
+                "capture_options": {
+                    "screenshot_before_after": True,
+                    "ui_dump_before_after": True,
+                    "visible_text_before_after": True,
+                    "focus_post_action_window": True,
+                },
                 "notes": list(base.get("notes", [])) + [
                     f"探索目标: {target_hint}",
                     f"navigation_hint: {navigation_hint}" if navigation_hint else "navigation_hint: <none>",
@@ -126,10 +142,14 @@ class RunResult:
     parsed_count: int = 0
     source_counts: dict[str, int] = field(default_factory=dict)
     note_type_counts: dict[str, int] = field(default_factory=dict)
-    step_events: list[dict[str, str]] = field(default_factory=list)
+    step_events: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
     next_action: str = ""
     report_path: str = ""
+    round_index: int = 1
+    max_rounds: int = 1
+    session_id: str = ""
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
