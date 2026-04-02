@@ -159,7 +159,7 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         details.append(f"navigation_reached={', '.join(exploration.navigation_reached) or '无'}")
         details.append(f"recommendation={exploration.recommendation}")
 
-        status = "verified" if ok and exploration.status in {"candidate_found", "ready_to_promote"} else "needs_attention"
+        status = "verified" if ok and exploration.status in {"candidate_found", "strong_candidate_evidence"} else "needs_attention"
         return VerificationResult(
             task_id=result.task_id or task.task_id,
             status=status,
@@ -173,7 +173,7 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             flags={
                 "exploration_mode": True,
                 "candidate_found": bool(exploration.candidate_keys),
-                "ready_to_promote": exploration.status == "ready_to_promote",
+                "strong_candidate_evidence": exploration.status == "strong_candidate_evidence",
                 "run_succeeded": result.status in ("success", "partial"),
             },
         )

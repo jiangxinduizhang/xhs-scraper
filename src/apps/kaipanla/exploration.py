@@ -3,8 +3,8 @@
 
 用于 assistant-directed exploration：
 - 不要求先有正式注册页面
-- 重点是产生候选页面证据、候选关键字段和沉淀建议
-- 这里做的是“预判器”，不是最终裁判
+- 重点是产生候选页面证据、候选关键字段和探索建议
+- 这里做的是“候选证据构建器”，不是最终裁判
 """
 
 from __future__ import annotations
@@ -202,14 +202,14 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
         readiness_reasons.append("noise_under_control")
 
     if readiness_score >= 6 and matched_records >= 1:
-        status = "ready_to_promote"
-        recommendation = "已命中目标页面主块且导航稳定，可进入沉淀评估。"
+        status = "strong_candidate_evidence"
+        recommendation = "已形成较强候选证据，建议由 OpenClaw 结合目标语义决定是否沉淀。"
     elif candidate_keys and matched_records >= 1:
         status = "candidate_found"
-        recommendation = "已识别到候选主块，但仍存在噪声或目标证据不足，建议继续观察。"
+        recommendation = "已识别到候选块证据，但仍存在噪声或目标证据不足，建议继续观察。"
     else:
         status = "not_ready"
-        recommendation = "尚未形成可靠候选主块，建议复查导航入口或抓包范围。"
+        recommendation = "尚未形成可靠候选证据，建议复查导航入口或抓包范围。"
 
     return ExplorationResult(
         task_id=task_id,

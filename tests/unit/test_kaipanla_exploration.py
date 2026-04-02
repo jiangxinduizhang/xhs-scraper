@@ -27,7 +27,7 @@ def test_exploration_detector_prioritizes_target_keys(tmp_path):
 
     result = build_exploration_result("kpl-dragon-tiger-test", run, "探索抓取今天龙虎榜")
 
-    assert result.status in {"candidate_found", "ready_to_promote"}
+    assert result.status in {"candidate_found", "strong_candidate_evidence"}
     assert "LongHuBang" in result.candidate_keys[:3]
     assert result.recommended_page_name == "dragon_tiger"
     assert result.evidence["target_profile"] == "dragon_tiger"
