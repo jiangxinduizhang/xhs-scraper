@@ -162,10 +162,11 @@ def test_verify_run_exploration_mode(tmp_path):
     result.save(run_path)
 
     verification = verify_run(run_path)
-    assert verification.status == "verified"
+    assert verification.status == "evidence_complete"
     assert verification.flags["exploration_mode"] is True
     assert verification.flags["candidate_found"] is True
-    assert verification.flags["safe_to_claim_stable_capture"] is True
+    assert verification.flags["evidence_complete"] is True
+    assert verification.flags["safe_to_claim_stable_capture"] is False
 
 
 def test_verify_run_exploration_mode_requests_human_when_blocked(tmp_path):

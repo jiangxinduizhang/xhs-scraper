@@ -353,8 +353,8 @@ def cmd_explore(args) -> dict:
 
     for round_no in range(1, max_rounds + 1):
         if round_no > 1:
-            task.target_hint = f"{args.text}（收紧目标：优先识别主列表/主块，避免公共块）"
-            task.notes = list(task.notes) + [f"auto_round_{round_no}: tightened target hint for self-proof gate"]
+            task.target_hint = f"{args.text}（收紧目标：优先保留点击后时间窗与前后 UI 证据）"
+            task.notes = list(task.notes) + [f"auto_round_{round_no}: tightened target hint for evidence collection"]
 
         run = run_task(task)
         exploration = build_exploration_result(task.task_id, run, task.target_hint or task.goal)
@@ -366,13 +366,14 @@ def cmd_explore(args) -> dict:
             "task": task.to_dict(),
             "run": run.to_dict(),
             "exploration": exploration.to_dict(),
-            "ask_human": bool(blockers) and exploration.status != "strong_candidate_evidence",
+            "control_directive": exploration.evidence.get("control_directive", {}),
+            "ask_human": bool(blockers),
         })
 
         final_run = run
         final_exploration = exploration
 
-        if exploration.status == "strong_candidate_evidence" and not blockers:
+        if exploration.evidence_status == "evidence_complete" and not blockers:
             break
 
         no_improvement = previous_blockers == blockers and previous_candidate_keys == current_candidate_keys

@@ -27,12 +27,11 @@ def test_exploration_detector_prioritizes_target_keys(tmp_path):
 
     result = build_exploration_result("kpl-dragon-tiger-test", run, "探索抓取今天龙虎榜")
 
-    assert result.status in {"candidate_found", "strong_candidate_evidence"}
+    assert result.evidence_status in {"evidence_partial", "evidence_complete"}
     assert "LongHuBang" in result.candidate_keys[:3]
     assert result.recommended_page_name == "dragon_tiger"
     assert result.evidence["target_profile"] == "dragon_tiger"
-    assert result.evidence["readiness_score"] >= 5
-    assert any(item["key"] == "LongHuBang" for item in result.evidence["top_candidate_evidence"])
+    assert any(item["name"] == "LongHuBang" for item in result.evidence["structure_facts"]["candidate_structures"])
 
 
 def test_exploration_detector_marks_noise_keys(tmp_path):
@@ -55,7 +54,7 @@ def test_exploration_detector_marks_noise_keys(tmp_path):
 
     assert "errcode" in result.likely_noise_keys
     assert "t" in result.likely_noise_keys
-    assert result.status == "not_ready"
+    assert result.evidence_status == "evidence_insufficient"
 
 
 def test_exploration_self_proof_gate_blocks_generic_list_dominant_case(tmp_path):
@@ -83,9 +82,9 @@ def test_exploration_self_proof_gate_blocks_generic_list_dominant_case(tmp_path)
 
     result = build_exploration_result("kpl-generic-list-test", run, "探索抓取今天龙虎榜")
 
-    assert result.status == "candidate_found"
+    assert result.evidence_status == "evidence_partial"
     assert "generic_list_dominant" in result.evidence["self_proof_blockers"]
-    assert "暂不能宣称已抓到目标主块" in result.recommendation
+    assert "需由 AI 决定下一轮最小动作" in result.recommendation
 
 
 def test_exploration_evidence_includes_timing_and_shape(tmp_path):
@@ -113,3 +112,6 @@ def test_exploration_evidence_includes_timing_and_shape(tmp_path):
     assert scored["timing"]["post_navigation_hits"] >= 1
     assert scored["shape"]["kind"] == "list"
     assert "category" in scored["noise_rationale"]
+    assert "action_facts" in result.evidence
+    assert "request_facts" in result.evidence
+    assert "structure_facts" in result.evidence

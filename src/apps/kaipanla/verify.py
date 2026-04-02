@@ -154,9 +154,9 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             ok = False
 
         blockers = exploration.evidence.get("self_proof_blockers", []) if isinstance(exploration.evidence, dict) else []
-        ask_human = bool(blockers) and exploration.status != "strong_candidate_evidence"
+        ask_human = bool(blockers)
 
-        details.append(f"exploration.status={exploration.status}")
+        details.append(f"exploration.evidence_status={exploration.evidence_status}")
         details.append(f"candidate_keys={', '.join(exploration.candidate_keys) or '无'}")
         details.append(f"matched_records={exploration.matched_records}")
         details.append(f"navigation_reached={', '.join(exploration.navigation_reached) or '无'}")
@@ -164,9 +164,9 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
         if blockers:
             details.append(f"self_proof_blockers={', '.join(blockers)}")
         if ask_human:
-            details.append("ask_human=当前仍缺关键确认，不应对外宣称已稳定抓到目标页面")
+            details.append("ask_human=当前证据仍不足以支持稳定结论，应由 AI 或用户决定下一轮动作")
 
-        status = "verified" if ok and exploration.status in {"candidate_found", "strong_candidate_evidence"} else "needs_attention"
+        status = "evidence_complete" if ok and exploration.evidence_status == "evidence_complete" else ("evidence_partial" if ok else "evidence_insufficient")
         return VerificationResult(
             task_id=result.task_id or task.task_id,
             status=status,
@@ -181,10 +181,10 @@ def verify_run(run_path: str | Path, task_path: str | Path | None = None) -> Ver
             flags={
                 "exploration_mode": True,
                 "candidate_found": bool(exploration.candidate_keys),
-                "strong_candidate_evidence": exploration.status == "strong_candidate_evidence",
+                "evidence_complete": exploration.evidence_status == "evidence_complete",
                 "run_succeeded": result.status in ("success", "partial"),
                 "ask_human": ask_human,
-                "safe_to_claim_stable_capture": exploration.status == "strong_candidate_evidence" and not blockers,
+                "safe_to_claim_stable_capture": False,
             },
         )
 

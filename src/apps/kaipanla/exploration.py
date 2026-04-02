@@ -1,10 +1,10 @@
 """
-开盘啦探索模式支持。
+开盘啦 exploration evidence bundle 构建。
 
 用于 assistant-directed exploration：
 - 不要求先有正式注册页面
-- 重点是产生候选页面证据、候选关键字段和探索建议
-- 这里做的是“候选证据构建器”，不是最终裁判
+- 重点是产出可供 AI 判读的事实证据包
+- 这里不做最终页面语义裁决
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from src.apps.kaipanla.task import RunResult
 class ExplorationResult:
     task_id: str
     target_hint: str = ""
-    status: str = "pending"
+    evidence_status: str = "evidence_insufficient"
     candidate_keys: list[str] = field(default_factory=list)
     matched_records: int = 0
     navigation_reached: list[str] = field(default_factory=list)
@@ -30,8 +30,15 @@ class ExplorationResult:
     recommended_page_name: str = ""
     evidence: dict = field(default_factory=dict)
 
+    @property
+    def status(self) -> str:
+        # compatibility only; new callers should use evidence_status
+        return self.evidence_status
+
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data["status"] = self.evidence_status
+        return data
 
 
 TARGET_SIGNAL_HINTS = {
@@ -183,7 +190,7 @@ def _score_key(
 
     if any(event in navigation_reached for event in profile.get("navigation_events", [])):
         score += 2
-        reasons.append("target_navigation_reached")
+        reasons.append("target_navigation_recorded")
 
     if post_nav_hits > 0 and pre_nav_hits == 0:
         score += 2
@@ -207,6 +214,14 @@ def _score_key(
         reasons.append("non_structured_value")
 
     return score, reasons
+
+
+def _event_fact(step_event: dict) -> dict:
+    return {
+        "name": step_event.get("name", ""),
+        "detail": step_event.get("detail", ""),
+        "timestamp": step_event.get("at", ""),
+    }
 
 
 def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> ExplorationResult:
@@ -251,10 +266,7 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
             if key not in value_shapes:
                 value_shapes[key] = _value_shape(data.get(key))
 
-        matched = []
-        for key in keys:
-            if key in profile.get("positive_keys", []):
-                matched.append(key)
+        matched = [key for key in keys if key in profile.get("positive_keys", [])]
         if matched:
             matched_records += 1
             signal_counter.update(matched)
@@ -303,67 +315,98 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
     generic_list_dominant = bool(candidate_keys) and candidate_keys[0] == "List" and not positive_non_generic_candidates
     common_block_dominant = any(key in candidate_keys[:3] for key in profile.get("negative_keys", [])[:3])
 
-    readiness_score = 0
-    readiness_reasons: list[str] = []
+    evidence_reasons: list[str] = []
     if matched_records >= 1:
-        readiness_score += 3
-        readiness_reasons.append("matched_positive_records")
+        evidence_reasons.append("matched_positive_records")
     if target_navigation_hit:
-        readiness_score += 2
-        readiness_reasons.append("target_navigation_reached")
+        evidence_reasons.append("target_navigation_recorded")
     if len(candidate_keys) >= 2:
-        readiness_score += 2
-        readiness_reasons.append("multiple_candidate_keys")
-    if len(likely_noise_keys) <= max(1, len(candidate_keys) // 2):
-        readiness_score += 1
-        readiness_reasons.append("noise_under_control")
+        evidence_reasons.append("multiple_candidate_keys")
     if positive_non_generic_candidates:
-        readiness_score += 1
-        readiness_reasons.append("non_generic_positive_candidates")
+        evidence_reasons.append("non_generic_positive_candidates")
 
-    self_proof_blockers: list[str] = []
+    blockers: list[str] = []
     if generic_list_dominant:
-        self_proof_blockers.append("generic_list_dominant")
+        blockers.append("generic_list_dominant")
     if common_block_dominant:
-        self_proof_blockers.append("common_blocks_still_dominant")
+        blockers.append("common_blocks_still_dominant")
     if target_navigation_hit and not positive_non_generic_candidates:
-        self_proof_blockers.append("no_non_generic_target_signal")
+        blockers.append("no_non_generic_target_signal")
     if matched_records <= 1 and not positive_non_generic_candidates:
-        self_proof_blockers.append("single_weak_match_without_specific_signal")
+        blockers.append("single_weak_match_without_specific_signal")
 
-    if self_proof_blockers:
-        if matched_records >= 1 and candidate_keys:
-            status = "candidate_found"
-            recommendation = "已发现候选块证据，但自证门未通过，暂不能宣称已抓到目标主块。"
-        else:
-            status = "not_ready"
-            recommendation = "尚未形成可靠候选证据，建议复查导航入口或抓包范围。"
-    elif readiness_score >= 7 and matched_records >= 1:
-        status = "strong_candidate_evidence"
-        recommendation = "已形成较强候选证据，建议由 OpenClaw 结合目标语义决定是否沉淀。"
-    elif candidate_keys and matched_records >= 1:
-        status = "candidate_found"
-        recommendation = "已识别到候选块证据，但仍存在噪声或目标证据不足，建议继续观察。"
+    if not candidate_keys:
+        evidence_status = "evidence_insufficient"
+        recommendation = "当前候选证据不足，建议复查导航路径或补采点击前后证据。"
+    elif blockers:
+        evidence_status = "evidence_partial"
+        recommendation = "已产出候选证据，但仍被公共块或泛化字段干扰，需由 AI 决定下一轮最小动作。"
     else:
-        status = "not_ready"
-        recommendation = "尚未形成可靠候选证据，建议复查导航入口或抓包范围。"
+        evidence_status = "evidence_complete"
+        recommendation = "已产出较完整候选证据包，可由 AI 继续判读是否收紧目标或停止探索。"
 
-    top_candidate_evidence = []
+    candidate_structures = []
     for key in candidate_keys[:6]:
-        shape = value_shapes.get(key, {})
-        top_candidate_evidence.append(
+        candidate_structures.append(
             {
-                "key": key,
+                "name": key,
+                "keys": [key],
+                "kind": value_shapes.get(key, {}).get("kind", "unknown"),
+                "shape": value_shapes.get(key, {}),
+                "repetition": key_counter.get(key, 0),
                 "timing": candidate_timing.get(key, {}),
-                "shape": shape,
-                "noise_rationale": noise_rationale.get(key, {}),
+                "reason": noise_rationale.get(key, {}).get("reasons", []),
             }
         )
+
+    noise_structures = []
+    for key in likely_noise_keys[:6]:
+        noise_structures.append(
+            {
+                "name": key,
+                "keys": [key],
+                "kind": value_shapes.get(key, {}).get("kind", "unknown"),
+                "shape": value_shapes.get(key, {}),
+                "repetition": key_counter.get(key, 0),
+                "reason": noise_rationale.get(key, {}).get("category", "weak_related"),
+            }
+        )
+
+    action_facts = {
+        "steps": [_event_fact(event) for event in (run.step_events or [])],
+        "navigation_recorded": navigation_reached,
+    }
+    ui_facts = {
+        "screenshot_before": "",
+        "screenshot_after": "",
+        "ui_dump_before": "",
+        "ui_dump_after": "",
+        "ui_changed": False,
+        "visible_text_diff": [],
+    }
+    request_facts = {
+        "pre_window_count": int(sum(pre_nav_counter.values())),
+        "post_window_count": int(sum(post_nav_counter.values())),
+        "new_requests": matched_examples,
+        "post_navigation_only": [
+            key for key, timing in candidate_timing.items() if timing.get("post_navigation_only")
+        ][:12],
+        "paths_seen": sorted({example.get("path", "") for example in matched_examples if example.get("path")}),
+    }
+    structure_facts = {
+        "candidate_structures": candidate_structures,
+        "noise_structures": noise_structures,
+    }
+
+    next_action_suggestion = {
+        "action": "focus_post_tap_window" if blockers else "stop",
+        "reason": "点击后证据仍混有公共块，建议下一轮收紧点击后时间窗。" if blockers else "当前证据包已较完整，建议由 AI 决定是否停止或继续。",
+    }
 
     return ExplorationResult(
         task_id=task_id,
         target_hint=target_hint,
-        status=status,
+        evidence_status=evidence_status,
         candidate_keys=candidate_keys,
         matched_records=matched_records,
         navigation_reached=navigation_reached,
@@ -377,12 +420,20 @@ def build_exploration_result(task_id: str, run: RunResult, target_hint: str) -> 
             "captured_count": run.captured_count,
             "parsed_count": run.parsed_count,
             "target_profile": target_name,
-            "readiness_score": readiness_score,
-            "readiness_reasons": readiness_reasons,
-            "self_proof_blockers": self_proof_blockers,
+            "evidence_reasons": evidence_reasons,
+            "self_proof_blockers": blockers,
             "post_navigation_counts": dict(post_nav_counter),
             "pre_navigation_counts": dict(pre_nav_counter),
-            "top_candidate_evidence": top_candidate_evidence,
+            "candidate_timing": candidate_timing,
+            "noise_rationale": noise_rationale,
+            "action_facts": action_facts,
+            "ui_facts": ui_facts,
+            "request_facts": request_facts,
+            "structure_facts": structure_facts,
+            "control_directive": {
+                "action": next_action_suggestion["action"],
+                "reason": next_action_suggestion["reason"],
+            },
             "scored_keys": [
                 {
                     "key": key,

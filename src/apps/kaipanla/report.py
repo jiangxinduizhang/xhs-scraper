@@ -705,8 +705,7 @@ def render_run_report(task: TaskSpec, result: RunResult) -> str:
     if getattr(task, "mode", "registered") == "exploration":
         exploration = build_exploration_result(task.task_id or result.task_id, result, task.target_hint or task.goal)
         blockers = exploration.evidence.get("self_proof_blockers", []) if isinstance(exploration.evidence, dict) else []
-        ask_human = bool(blockers) and exploration.status != "strong_candidate_evidence"
-        stable_claim = exploration.status == "strong_candidate_evidence" and not blockers
+        ask_human = bool(blockers)
         lines = [
             f"# Kaipanla Exploration Report · {task.task_id or result.task_id}",
             "",
@@ -714,31 +713,34 @@ def render_run_report(task: TaskSpec, result: RunResult) -> str:
             f"- 应用: {task.app}",
             f"- 页面: {task.page}",
             f"- 目标: {task.target_hint or task.goal or '无'}",
-            f"- 状态: {exploration.status}",
-            f"- 导航命中: {', '.join(exploration.navigation_reached) or '无'}",
+            f"- 证据状态: {exploration.evidence_status}",
+            f"- 导航记录: {', '.join(exploration.navigation_reached) or '无'}",
             f"- 候选关键字段: {', '.join(exploration.candidate_keys) or '无'}",
             f"- 噪声字段: {', '.join(exploration.likely_noise_keys) or '无'}",
             f"- 推荐页面(弱归因): {exploration.recommended_page_name or '未识别'}",
             f"- 说明: {exploration.recommendation}",
-            f"- 可否宣称稳定抓到: {'可以' if stable_claim else '不可以'}",
             f"- 是否建议人工确认: {'是' if ask_human else '否'}",
+            "",
+            "## 本轮探测结论",
+            "- 这是事实证据包，不代表 bridge 已确认进入目标页主块。",
+            "- 是否继续、收紧还是停止，应由 AI 基于该证据包决定。",
             "",
         ]
         if blockers:
             lines.extend([
-                "## Self-Proof Blockers",
+                "## 当前阻塞点",
                 *[f"- {item}" for item in blockers],
                 "",
             ])
         if ask_human:
             lines.extend([
                 "## Ask Human",
-                "- 当前仍存在关键不确定性，不应对外宣称已稳定抓到目标页面主数据。",
-                "- 如需继续，请优先确认目标是否是页面主列表/主块，还是页面内任意相关数据。",
+                "- 当前证据仍不足以支持稳定结论，建议先确认目标范围。",
+                "- 你要锁定的是页面主列表/主块，还是页面内任意相关数据？",
                 "",
             ])
         lines.extend([
-            "## Exploration Summary",
+            "## Evidence Bundle",
             "```json",
             json.dumps(exploration.to_dict(), ensure_ascii=False, indent=2),
             "```",
