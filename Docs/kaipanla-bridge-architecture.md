@@ -374,13 +374,154 @@ report 也应拆层：
 
 ---
 
+## 执行守则：如何避免越界与无限优化
+
+为避免 runtime / OpenClaw 职责漂移，后续每次推进都应先对照以下条目自检。
+
+### A. 哪些改动属于桥接器边界内
+
+允许直接在桥接器中做：
+
+1. **执行层改动**
+   - 导航步骤
+   - 抓包与 raw 采集
+   - parser / detector / scoring
+   - verify / report / exploration_summary
+   - task / result schema
+
+2. **证据层改动**
+   - 补充 step_events
+   - 输出 candidate_keys / noise_keys / readiness_score
+   - 输出 promote recommendation 的证据字段
+
+3. **稳定协议改动**
+   - 新增 `explore` / `promote` 一类 machine-readable 命令
+   - 明确 exploration / registered 的结果结构
+
+### B. 哪些改动属于越界，不应优先放进桥接器
+
+以下内容默认视为越界，除非用户明确要求：
+
+1. 让 runtime 自己做开放式自然语言理解
+2. 让 runtime 自己决定用户真正意图
+3. 让 runtime 自己宣布“这个页面已经正式支持”
+4. 在 bridge 里写大量投资判断、复盘观点、交易建议
+5. 为一次性页面需求提前做厚重、泛化的产品化框架
+
+### C. 每次代码推进前必须回答的 4 个问题
+
+1. 这次改动是在增强 **执行/证据/验真**，还是在偷做 **理解/决策**？
+2. 这次改动是否能产出新的结构化证据，而不是只增加复杂度？
+3. 这次改动是否有明确停点，而不是“还能继续优化”？
+4. 如果这次只做一半，是否仍然是一个可验证增量？
+
+只要第 1 条落到“理解/决策”，或第 3 条没有停点，就应该暂停，避免继续扩张。
+
+---
+
+## 完成判定：什么叫“这一阶段做完了”
+
+### 阶段 1：exploration 协议成立
+
+满足以下条件即可视为完成，不再继续扩写：
+
+1. CLI 存在稳定 `explore` 命令
+2. exploration task/result schema 已固定到可消费
+3. exploration report / verify 能区分于 registered
+4. 至少 1 个真实页面（如龙虎榜）完成一次真机 exploration 闭环
+5. 单测覆盖 exploration 基础契约
+
+**完成后停止继续造新框架。**
+下一步应转入“提升 exploration 判断质量”，而不是再扩命令面。
+
+### 阶段 2：exploration detector 够用
+
+满足以下条件即可视为完成：
+
+1. exploration 输出能区分：
+   - candidate_keys
+   - noise_keys
+   - navigation_reached
+   - recommendation
+2. 对至少 1 个真实页面，候选字段不再主要被首页/情绪页混入主导
+3. 可以给出 `candidate_found` / `ready_to_promote` 的可解释原因
+4. 单测覆盖目标词命中、噪声剔除、排序结果
+
+**完成后停止继续细抠 detector。**
+下一步应等待更多真实抓取，再决定是否 promote。
+
+### 阶段 3：是否沉淀为 registered
+
+只有当以下条件满足时才进入：
+
+1. 同一页面多次 exploration 结果稳定
+2. 主字段稳定命中
+3. 导航稳定
+4. 用户确实存在重复使用需求
+5. 可以写出页面级 verify 规则
+
+**如果条件未满足，就不 promote。**
+允许停留在 exploration-first 状态。
+
+---
+
+## 当前推荐的最小推进项
+
+基于当前龙虎榜 exploration 结果，下一步只建议做一个最小代码增量：
+
+### 补 exploration detector，但只做到“预判器”，不做“最终裁判”
+
+本次允许的具体范围：
+
+1. **目标词命中**
+   - 为 `dragon_tiger` / `market_emotion` / `market_radar` / `market_featured` 建立 signal hints
+
+2. **主字段候选排序**
+   - 给候选块做简单分数
+   - 依据：目标命中、出现频率、导航时序、结构形态
+
+3. **噪声剔除**
+   - 降权首页公共块、广告块、明显不相关块
+
+4. **沉淀建议质量**
+   - recommendation 必须附证据原因
+   - readiness 只能输出：`not_ready` / `candidate_found` / `ready_to_promote`
+
+### 本次明确不做
+
+1. 不做开放式 AI 推理塞进 runtime
+2. 不做 fully automatic promote
+3. 不做更多新页面接入
+4. 不把 detector 写成复杂 DSL / 规则引擎
+5. 不因为还能优化就继续扩 scope
+
+---
+
+## 自检模板（每次提交前复核）
+
+提交前应回答：
+
+- **这次改动目标是什么？**
+  - 是否只在增强 exploration detector / evidence quality？
+- **验证方式是什么？**
+  - 单测？真机 exploration？对比前后 candidate/noise 质量？
+- **完成信号是什么？**
+  - 到哪个阈值就停？
+- **有没有越界？**
+  - 是否把理解/决策偷偷塞进 runtime？
+
+如果不能简洁回答这 4 个问题，说明当前改动范围需要收缩。
+
+---
+
 ## 推荐实施顺序
 
 1. 在桥接器仓库补 architecture 文档（本文件）
 2. 修改 skill 文档，统一心智
 3. 在 CLI 增加 `explore` 原型命令
 4. 定义 exploration result schema
-5. 再决定是否以龙虎榜为第一个完整样板
+5. 补 exploration detector（目标词命中 / 排序 / 噪声剔除 / recommendation）
+6. 再决定是否以龙虎榜为第一个 promote 样板
 
 ---
 
