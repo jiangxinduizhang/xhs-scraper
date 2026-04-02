@@ -434,7 +434,7 @@ report 也应拆层：
 **完成后停止继续造新框架。**
 下一步应转入“提升 exploration 判断质量”，而不是再扩命令面。
 
-### 阶段 2：exploration detector 够用
+### 阶段 2：exploration evidence builder 够用
 
 满足以下条件即可视为完成：
 
@@ -443,22 +443,24 @@ report 也应拆层：
    - noise_keys
    - navigation_reached
    - recommendation
+   - readiness/evidence reasons
 2. 对至少 1 个真实页面，候选字段不再主要被首页/情绪页混入主导
-3. 可以给出 `candidate_found` / `ready_to_promote` 的可解释原因
+3. 可以给出 `candidate_found` / `strong_candidate_evidence` 的可解释原因
 4. 单测覆盖目标词命中、噪声剔除、排序结果
 
-**完成后停止继续细抠 detector。**
-下一步应等待更多真实抓取，再决定是否 promote。
+**完成后停止继续细抠 evidence builder。**
+下一步应等待更多真实抓取，再由 OpenClaw 判断是否 promote。
 
 ### 阶段 3：是否沉淀为 registered
 
 只有当以下条件满足时才进入：
 
 1. 同一页面多次 exploration 结果稳定
-2. 主字段稳定命中
+2. 候选主块证据稳定命中
 3. 导航稳定
 4. 用户确实存在重复使用需求
 5. 可以写出页面级 verify 规则
+6. OpenClaw 复核后认为值得 promote
 
 **如果条件未满足，就不 promote。**
 允许停留在 exploration-first 状态。
@@ -469,31 +471,53 @@ report 也应拆层：
 
 基于当前龙虎榜 exploration 结果，下一步只建议做一个最小代码增量：
 
-### 补 exploration detector，但只做到“预判器”，不做“最终裁判”
+### 补 exploration detector，但只做到“候选证据构建器”，不做“最终裁判”
+
+这里要明确区分两层：
+
+1. **bridge runtime 负责候选证据构建**
+   - 导航到达后的时序证据
+   - 候选块出现频率 / 稳定性 / 结构形态
+   - 噪声块识别与降权
+   - 页面归因的弱判断（例如“更像哪个已知页面”）
+
+2. **OpenClaw 负责最终语义判断与 promote 决策**
+   - 哪个候选块才是真正值得沉淀的“主块”
+   - 当前 exploration 是否已经足够 promote
+   - 下一步继续探索、缩小范围还是正式注册
+   - 对结构化结果做面向用户的人话解释
+
+换句话说，bridge 可以更会“整理证据”，但不应该更会“替 AI 下结论”。
 
 本次允许的具体范围：
 
-1. **目标词命中**
+1. **目标信号提示**
    - 为 `dragon_tiger` / `market_emotion` / `market_radar` / `market_featured` 建立 signal hints
+   - 仅用于候选证据归类，不用于最终业务拍板
 
-2. **主字段候选排序**
+2. **候选块排序**
    - 给候选块做简单分数
    - 依据：目标命中、出现频率、导航时序、结构形态
+   - 目标是输出更好的候选证据，而不是宣布“这就是主块”
 
 3. **噪声剔除**
    - 降权首页公共块、广告块、明显不相关块
+   - 降权不等于业务否定，只表示探索证据价值较低
 
-4. **沉淀建议质量**
+4. **readiness 信号质量**
    - recommendation 必须附证据原因
-   - readiness 只能输出：`not_ready` / `candidate_found` / `ready_to_promote`
+   - bridge 输出的 readiness 只表示“证据强弱”，不表示最终 promote 决策
+   - 推荐状态应优先使用：`not_ready` / `candidate_found` / `strong_candidate_evidence`
 
 ### 本次明确不做
 
 1. 不做开放式 AI 推理塞进 runtime
 2. 不做 fully automatic promote
-3. 不做更多新页面接入
-4. 不把 detector 写成复杂 DSL / 规则引擎
-5. 不因为还能优化就继续扩 scope
+3. 不做“bridge 直接理解用户真正意图”
+4. 不做“bridge 直接认定哪个候选就是最终主块”
+5. 不做更多新页面接入
+6. 不把 detector 写成复杂 DSL / 规则引擎
+7. 不因为还能优化就继续扩 scope
 
 ---
 
