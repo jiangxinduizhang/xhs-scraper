@@ -6,6 +6,7 @@
 """
 
 from src.apps.kaipanla.manifest import AppManifest
+from src.apps.kaipanhong.task import RunResult, TaskSpec
 from src.apps.kaipanhong.exploration import ExplorationResult, build_exploration_result
 from src.apps.kaipanhong.judgers import Judgement, JudgementBundle, judge_exploration
 from src.apps.kaipanhong.manifest import build_stub_manifest
@@ -15,6 +16,8 @@ from src.apps.kaipanhong.verify import VerificationResult, render_verification_s
 
 __all__ = [
     "AppManifest",
+    "TaskSpec",
+    "RunResult",
     "ExplorationResult",
     "Judgement",
     "JudgementBundle",

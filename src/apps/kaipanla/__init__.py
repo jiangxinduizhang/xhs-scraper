@@ -12,6 +12,13 @@ from src.apps.kaipanla.task import RunResult, TaskSpec
 from src.apps.kaipanla.runner import KaipanlaRunner, run_task
 from src.apps.kaipanla.report import render_run_report
 from src.apps.kaipanla.verify import VerificationResult, render_verification_summary, verify_run
+from src.apps.kaipanla.pages import (
+    PageSpec,
+    get_page_spec,
+    list_pages,
+    build_task_defaults,
+    normalize_page_name,
+)
 
 __all__ = [
     "AppManifest",
@@ -19,6 +26,7 @@ __all__ = [
     "TaskSpec",
     "RunResult",
     "VerificationResult",
+    "PageSpec",
     "KaipanlaRunner",
     "build_first_round_checklist",
     "build_report",
@@ -29,4 +37,8 @@ __all__ = [
     "verify_run",
     "run_task",
     "build_stub_manifest",
+    "get_page_spec",
+    "list_pages",
+    "build_task_defaults",
+    "normalize_page_name",
 ]

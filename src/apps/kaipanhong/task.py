@@ -1,13 +1,13 @@
 """
-开盘啦任务契约 - 工厂方法层。
+开盘红任务契约 - 工厂方法层。
 
-这一层继承公共数据结构，添加开盘啦特有的工厂方法。
+这一层继承公共数据结构，添加开盘红特有的工厂方法。
 
-【APP-SPECIFIC 边界 - 这是开盘啦特有的工厂方法】
-- 这个文件是开盘啦特有的任务工厂
+【APP-SPECIFIC 边界 - 这是开盘红特有的工厂方法】
+- 这个文件是开盘红特有的任务工厂
 - 不应被视为通用的多 app 工厂
-- 所有工厂方法都假设 app="kaipanla"（或通过 registry 填充）
-- 提供开盘啦特有的预设和默认值覆盖
+- 所有工厂方法都假设 app="kaipanhong"（或通过 registry 填充）
+- 提供开盘红特有的预设和默认值覆盖
 
 【依赖关系】
 - 继承公共数据结构：from src.common.task import TaskSpec as BaseTaskSpec, RunResult as BaseRunResult
@@ -15,15 +15,15 @@
 - 通过 registry 或显式参数填充 app-specific 配置
 
 【向后兼容】
-- TaskSpec 和 RunResult 继承公共数据结构，添加开盘啦特有的工厂方法
+- TaskSpec 和 RunResult 继承公共数据结构，添加开盘红特有的工厂方法
 - 其他模块可以继续导入 TaskSpec 和 RunResult，并使用类方法
 - 例如：TaskSpec.market_emotion_default()、TaskSpec.for_preset()、TaskSpec.for_exploration()
 
 【禁止跨 app 复用的内容】
 - 所有工厂方法（如 market_emotion_default、for_preset、for_exploration）
-- 所有开盘啦特有的预设名称和默认值
+- 所有开盘红特有的预设名称和默认值
 
-如果其他 app（如开盘红）需要类似工厂方法：
+如果其他 app 需要类似工厂方法：
 1. 应建立独立的 task.py
 2. 继承公共数据结构：from src.common.task import TaskSpec as BaseTaskSpec
 3. 定义自己的工厂方法（如 for_preset、for_exploration）
@@ -32,13 +32,13 @@
 
 【与多 app bridge 的关系】
 - 多 app bridge 的公共数据结构在 src/common/task.py
-- 此文件是开盘啦特有的工厂层，继承公共数据结构并添加便捷方法
+- 此文件是开盘红特有的工厂层，继承公共数据结构并添加便捷方法
 - 其他 app adapter 应继承公共数据结构，然后定义自己的工厂方法
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from src.common.task import TaskSpec as BaseTaskSpec, RunResult as BaseRunResult
@@ -48,9 +48,9 @@ from src.apps.registry import build_app_task_defaults, get_app_spec
 @dataclass(slots=True)
 class TaskSpec(BaseTaskSpec):
     """
-    开盘啦任务规格 - 继承公共数据结构，添加工厂方法。
+    开盘红任务规格 - 继承公共数据结构，添加工厂方法。
 
-    字段定义来自公共数据结构，工厂方法是开盘啦特有的。
+    字段定义来自公共数据结构，工厂方法是开盘红特有的。
     """
 
     @classmethod
@@ -65,13 +65,13 @@ class TaskSpec(BaseTaskSpec):
 
         参数：
             preset: 预设名称（如 "market_emotion"、"dragon_tiger"）
-            app: app 名称（默认为 "kaipanla"，可显式指定其他 app）
+            app: app 名称（默认为 "kaipanhong"，可显式指定其他 app）
 
         返回：
-            TaskSpec 实例，填充了开盘啦特有的配置
+            TaskSpec 实例，填充了开盘红特有的配置
         """
-        # 如果 app 未指定，默认为开盘啦
-        effective_app = app or "kaipanla"
+        # 如果 app 未指定，默认为开盘红
+        effective_app = app or "kaipanhong"
         app_spec = get_app_spec(effective_app)
         defaults = build_app_task_defaults(app_spec.app_id, preset or "market_emotion")
 
@@ -103,13 +103,13 @@ class TaskSpec(BaseTaskSpec):
             page: 页面名称（可选）
             preset: 预设名称（可选）
             navigation_hint: 导航提示（可选）
-            app: app 名称（默认为 "kaipanla"，可显式指定其他 app）
+            app: app 名称（默认为 "kaipanhong"，可显式指定其他 app）
 
         返回：
             TaskSpec 实例，配置为探索模式
         """
-        # 如果 app 未指定，默认为开盘啦
-        effective_app = app or "kaipanla"
+        # 如果 app 未指定，默认为开盘红
+        effective_app = app or "kaipanhong"
         app_spec = get_app_spec(effective_app)
         chosen_page = page or preset or "market_emotion"
         base = build_app_task_defaults(app_spec.app_id, chosen_page)
@@ -159,7 +159,7 @@ class TaskSpec(BaseTaskSpec):
 @dataclass(slots=True)
 class RunResult(BaseRunResult):
     """
-    开盘啦执行结果 - 继承公共数据结构。
+    开盘红执行结果 - 继承公共数据结构。
 
     字段定义来自公共数据结构，无额外方法。
     """
