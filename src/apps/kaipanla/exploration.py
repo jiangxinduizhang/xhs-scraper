@@ -5,6 +5,27 @@
 - 不要求先有正式注册页面
 - 重点是产出可供 AI 判读的事实证据包
 - runtime 不做页面语义识别、候选裁决或下一步策略判断
+
+【APP-SPECIFIC 边界】
+- NOISE_KEYS: 基于开盘啦请求结构总结的噪声字段集合
+  其他 app 的请求结构可能不同，需要独立的噪声过滤配置
+- _iter_raw_records: 虽然逻辑通用，但 raw_paths 和数据结构假设开盘啦格式
+- 当前实现假设开盘啦特有的请求结构（如 data.dict 格式）
+
+【可复用的部分】
+- ExplorationResult 数据结构定义（纯结构，不含 app 语义）
+- _value_shape、_record_fact 等纯数据处理函数
+- build_exploration_result 的骨架逻辑（但需要 app-specific 参数）
+
+【禁止跨 app 复用的内容】
+- NOISE_KEYS 集合
+- 对请求结构的假设（如 data.dict 格式）
+- 对 raw_paths 的假设
+
+如果其他 app（如开盘红）需要类似 exploration：
+1. 可以复用 ExplorationResult 结构
+2. 应建立独立的 NOISE_KEYS
+3. 可能需要调整请求结构解析逻辑
 """
 
 from __future__ import annotations

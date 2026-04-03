@@ -94,3 +94,23 @@ def build_app_task_defaults(app: str | None, page: str | None) -> dict:
 def list_app_pages(app: str | None) -> list[str]:
     module = load_app_module(app)
     return module.list_pages()
+
+
+def load_app_verify_module(name: str | None):
+    spec = get_app_spec(name)
+    return importlib.import_module(f"{spec.adapter_module}.verify")
+
+
+def load_app_report_module(name: str | None):
+    spec = get_app_spec(name)
+    return importlib.import_module(f"{spec.adapter_module}.report")
+
+
+def load_app_exploration_module(name: str | None):
+    spec = get_app_spec(name)
+    return importlib.import_module(f"{spec.adapter_module}.exploration")
+
+
+def load_app_judgers_module(name: str | None):
+    spec = get_app_spec(name)
+    return importlib.import_module(f"{spec.adapter_module}.judgers")

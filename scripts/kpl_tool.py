@@ -14,14 +14,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.apps.kaipanla.agent_loop import build_round1_plan, decide_next_step
-from src.apps.kaipanla.exploration import build_exploration_result
-from src.apps.kaipanla.agent_loop import build_round1_plan, decide_next_step
-from src.apps.kaipanla.exploration import build_exploration_result
-from src.apps.kaipanla.report import build_page_summary, render_run_report
 from src.apps.kaipanla.runner import run_task
 from src.apps.kaipanla.task import RunResult, TaskSpec
-from src.apps.kaipanla.verify import verify_run
-from src.apps.registry import get_app_spec, list_app_pages, list_apps
+from src.apps.registry import (
+    get_app_spec,
+    list_app_pages,
+    list_apps,
+    load_app_exploration_module,
+    load_app_report_module,
+    load_app_verify_module,
+)
 
 
 def _load_task(task_path: str | None, preset: str | None = None, app: str | None = None) -> TaskSpec:
@@ -146,6 +148,7 @@ def _structured_failure(run: RunResult) -> dict | None:
 def cmd_capture(args) -> dict:
     used_default_preset = not args.task and not args.preset
     task = _load_task(args.task, args.preset, args.app)
+    report_mod = load_app_report_module(task.app)
     run = run_task(task)
     payload = {
         "ok": run.status in ("success", "partial"),
@@ -154,7 +157,7 @@ def cmd_capture(args) -> dict:
         "task": task.to_dict(),
         "task_meta": _task_meta(task, used_default_preset=used_default_preset),
         "run": run.to_dict(),
-        "page_summary": build_page_summary(task, run),
+        "page_summary": report_mod.build_page_summary(task, run),
     }
     failure = _structured_failure(run)
     if failure:
@@ -163,9 +166,14 @@ def cmd_capture(args) -> dict:
 
 
 def cmd_verify(args) -> dict:
-    verification = verify_run(args.run, args.task)
-    run = _load_run(args.run) if Path(args.run).exists() else None
     task = TaskSpec.load(args.task) if args.task and Path(args.task).exists() else None
+    if task is None and Path(args.run).exists():
+        auto_task_path = Path(args.run).with_suffix(".task.json")
+        if auto_task_path.exists():
+            task = TaskSpec.load(auto_task_path)
+    verify_mod = load_app_verify_module(task.app if task else args.app)
+    verification = verify_mod.verify_run(args.run, args.task)
+    run = _load_run(args.run) if Path(args.run).exists() else None
     payload = {
         "ok": verification.status in {"artifacts_complete", "evidence_complete"},
         "command": "verify",
@@ -188,7 +196,8 @@ def cmd_report(args) -> dict:
         task_path = Path(args.run).with_suffix(".task.json")
         used_default_preset = not task_path.exists()
         task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset, app=args.app)
-    report = render_run_report(task, run)
+    report_mod = load_app_report_module(task.app)
+    report = report_mod.render_run_report(task, run)
     payload = {
         "ok": True,
         "command": "report",
@@ -197,7 +206,7 @@ def cmd_report(args) -> dict:
         "task_meta": _task_meta(task, used_default_preset=used_default_preset),
         "run": run.to_dict(),
         "report_text": report,
-        "page_summary": build_page_summary(task, run),
+        "page_summary": report_mod.build_page_summary(task, run),
     }
     return payload
 
@@ -235,7 +244,8 @@ def cmd_status(args) -> dict:
         latest["command"] = "status"
         latest["intent_meta"] = _intent_meta("status", task_path=None, preset=args.preset, used_default_preset=False)
         return latest
-    verification = verify_run(latest["run_path"])
+    verify_mod = load_app_verify_module((latest.get("task") or {}).get("app") or args.app)
+    verification = verify_mod.verify_run(latest["run_path"])
     latest["command"] = "status"
     latest["intent_meta"] = _intent_meta(
         "status",
@@ -279,6 +289,7 @@ def cmd_explore(args) -> dict:
         action_plan=action_plan,
         capture_options=capture_options,
     )
+    exploration_mod = load_app_exploration_module(task.app)
     payload = {
         "ok": True,
         "command": "explore",
@@ -311,7 +322,7 @@ def cmd_explore(args) -> dict:
             task.notes = list(task.notes) + [f"auto_round_{round_no}: repeated evidence collection without runtime-side semantic adjustment"]
 
         run = run_task(task)
-        exploration = build_exploration_result(task.task_id, run, task.target_hint or task.goal)
+        exploration = exploration_mod.build_exploration_result(task.task_id, run, task.target_hint or task.goal)
         current_signature = (
             tuple(exploration.observed_keys[:12]),
             tuple(exploration.observed_paths[:6]),
@@ -375,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     p_verify = sub.add_parser("verify", help="verify a completed run")
     p_verify.add_argument("--run", required=True, help="run JSON path")
     p_verify.add_argument("--task", help="task JSON path")
+    p_verify.add_argument("--app", default="kaipanla", choices=list_apps(), help="fallback target app when task file is missing")
 
     p_report = sub.add_parser("report", help="render a run report")
     p_report.add_argument("--run", required=True, help="run JSON path")

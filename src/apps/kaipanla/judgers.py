@@ -1,3 +1,36 @@
+"""
+开盘啦 exploration 判定器。
+
+【APP-SPECIFIC 边界 - 锚点集合】
+以下锚点集合是基于开盘啦 UI 特征总结的，不应被泛化：
+- HOME_FEED_HINTS: 首页/推荐流特征（开盘啦特有的 UI 文本）
+- DRAGON_TIGER_PAGE_HINTS: 龙虎榜页面入口特征
+- DRAGON_TIGER_DATA_HINTS: 龙虎榜数据字段特征
+- INSTITUTION_HINTS: 机构相关特征
+- BROKER_HINTS: 营业部相关特征
+- BOTTOM_NAV_HINTS: 底部导航特征（包含开盘啦特有的 HTML编码文本）
+- TOP_TITLE_HINTS: 页面标题特征
+- MARKET_EMOTION_PAGE_HINTS: 市场情绪页面特征
+
+【APP-SPECIFIC 边界 - 判定逻辑】
+判定函数中的逻辑是基于开盘啦 UI 特征设计的：
+- dragon_tiger_page_reached: 基于"今日上榜数"、"股票名称"、底部导航锚点判断
+- market_emotion_page_reached: 基于市场情绪页面特有字段判断
+- _has_bottom_nav_anchor: 检查开盘啦特有的底部导航 HTML 编码文本
+- _has_top_title_anchor: 检查开盘啦特有的标题特征
+
+【禁止跨 app 复用的内容】
+- 所有锚点集合 (HINTS)
+- 基于这些锚点的判定逻辑
+- HTML 编码文本特征（如 "龙虎榜&#10;Charts"）
+- UI 文本特征（如 "首页&#10;Home"）
+
+如果其他 app（如开盘红）需要类似判定，应：
+1. 建立独立的锚点集合
+2. 编写独立的判定逻辑
+3. 不直接复用开盘啦的任何锚点或判定
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

@@ -2,6 +2,32 @@
 开盘啦运行报告生成。
 
 报告用于回读执行事实与证据，不承担页面语义裁决职责。
+
+【APP-SPECIFIC 边界】
+- 直接 import 开盘啦特有的 build_exploration_result
+- build_page_summary 在 exploration mode 下调用 build_exploration_result
+- render_run_report 在 exploration mode 下调用 build_exploration_result
+
+【依赖关系】
+- report.py 依赖开盘啦特有的 exploration 模块
+- 如果其他 app（如开盘红）需要类似 report，应：
+  1. 建立独立的 report 模块
+  2. import 自己的 exploration 模块
+  3. 使用自己的 evidence bundle 构建逻辑
+
+【禁止跨 app 复用的内容】
+- 对 build_exploration_result 的直接依赖
+- 对 exploration 模块的假设
+
+当前开盘红 adapter 的 report.py 是复用此实现，但：
+- 这只是临时方案
+- 未来开盘红应建立独立的 report 实现
+- 不应长期依赖开盘啦的 exploration 模块
+
+【可复用的部分】
+- render_run_report 的骨架结构（Markdown 格式）
+- write_run_report 的文件写入逻辑
+- 但需要替换 exploration 相关的依赖
 """
 
 from __future__ import annotations

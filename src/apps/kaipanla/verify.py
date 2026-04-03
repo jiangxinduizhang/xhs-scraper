@@ -2,6 +2,29 @@
 开盘啦运行结果校验。
 
 只检查产物和证据完整性，不做页面语义判断。
+
+【APP-SPECIFIC 边界】
+- 直接 import 开盘啦特有的 build_exploration_result
+- 默认 fallback TaskSpec.market_emotion_default() 是开盘啦特有的预设
+- 数据库路径假设开盘啦特有的 db_path 格式
+
+【依赖关系】
+- verify_run 在 exploration mode 下调用 build_exploration_result
+  这意味着它依赖开盘啦特有的 exploration 模块
+- 如果其他 app（如开盘红）需要类似 verify，应：
+  1. 建立独立的 verify 模块
+  2. import 自己的 exploration 模块
+  3. 使用自己的 default preset
+
+【禁止跨 app 复用的内容】
+- 对 build_exploration_result 的直接依赖
+- TaskSpec.market_emotion_default() 作为 fallback
+- 对 db_path 的假设
+
+当前开盘红 adapter 的 verify.py 是复用此实现，但：
+- 这只是临时方案
+- 未来开盘红应建立独立的 verify 实现
+- 不应长期依赖开盘啦的 exploration 模块
 """
 
 from __future__ import annotations
