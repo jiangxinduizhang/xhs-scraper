@@ -1,7 +1,32 @@
 """
 开盘啦任务契约。
 
-这一层只定义“要做什么”和“做完以后长什么样”，不包含具体执行逻辑。
+这一层只定义"要做什么"和"做完以后长什么样"，不包含具体执行逻辑。
+
+【APP-SPECIFIC 边界 - 这是开盘啦特有的任务规格】
+- 这个文件是开盘啦特有的任务规格定义
+- 不应被视为通用的多 app TaskSpec
+- TaskSpec 的默认值是 `app: str = "kaipanla"`
+- 默认的 package_name、launch_activity、db_path 是开盘啦特有的
+
+【依赖关系】
+- 使用了 registry 的 build_app_task_defaults 和 get_app_spec
+- 这意味着可以通过 registry 获取其他 app 的配置
+- 但 TaskSpec 的默认值仍然是开盘啦特有的
+
+【禁止跨 app 复用的内容】
+- TaskSpec 的默认值（除非通过 registry 显式覆盖）
+- RunResult 的具体字段假设（假设开盘啦特有的执行结果结构）
+
+如果其他 app（如开盘红）需要类似任务规格：
+1. 可以复用 TaskSpec 和 RunResult 的数据结构定义
+2. 但必须通过 registry 显式指定 app 和相关配置
+3. 不应依赖默认值（因为默认值是开盘啦特有的）
+
+【与多 app bridge 的关系】
+- 多 app bridge 通过 registry.build_app_task_defaults(app, page) 获取配置
+- task.py 提供数据结构定义，但配置值来自 registry
+- 此文件是开盘啦 adapter 的任务规格，但数据结构可以被其他 adapter 复用
 """
 
 from __future__ import annotations
@@ -107,7 +132,7 @@ class TaskSpec:
                 "mode": "exploration",
                 "page": chosen_page,
                 "preset": preset or chosen_page,
-                "goal": f"探索抓取目标：{target_hint}",
+                "goal": f"探索抓取目标:{target_hint}",
                 "target_hint": target_hint,
                 "success_criteria": [
                     "collect_evidence_bundle",

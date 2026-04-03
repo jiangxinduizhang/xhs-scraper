@@ -1,5 +1,29 @@
 """
 开盘啦首轮验证清单。
+
+【APP-SPECIFIC 边界 - 这是开盘啦特有的验证清单】
+- 这个文件是开盘啦特有的首轮验证清单
+- 不应被视为通用的多 app checklist
+- build_first_round_checklist() 返回开盘啦的验证清单
+- 标题硬编码为 "开盘啦首轮验证清单"
+- items 中的验证项是基于开盘啦特有的 UI 和功能设计的
+
+【禁止跨 app 复用的内容】
+- 整个清单的逻辑和结构
+- 标题和具体验证项的内容
+- 对开盘啦特有的 UI 和功能的假设
+- risks 和 recap_template 的具体内容
+
+如果其他 app（如开盘红）需要类似 checklist：
+1. 应建立独立的 checklist.py
+2. 使用自己的标题和验证项
+3. 基于 自己的 UI 和功能设计验证项
+4. 不应复用此文件的任何具体内容
+
+【与多 app bridge 的关系】
+- 此文件是开盘啦特有的辅助工具
+- 不在多 app bridge 的通用路径上
+- 只用于开盘啦的迁移和验证过程
 """
 
 from __future__ import annotations

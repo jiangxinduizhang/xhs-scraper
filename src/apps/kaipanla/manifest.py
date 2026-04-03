@@ -2,6 +2,29 @@
 开盘啦 App 级清单。
 
 这里描述目标 App 的基础信息和待验证项，不放具体抓取实现。
+
+【APP-SPECIFIC 边界 - 这是开盘啦特有的 manifest】
+- 这个文件是开盘啦特有的应用清单
+- 不应被视为通用的多 app manifest
+- build_stub_manifest() 返回开盘啦的配置
+- 包含开盘啦特有的 package_name、launch_activity、target_hosts、target_paths
+
+【禁止跨 app 复用的内容】
+- build_stub_manifest() 的具体配置值
+- package_name="com.aiyu.kaipanla"
+- launch_activity=".splash.SplashActivity"
+- target_hosts 和 target_paths 的具体值
+
+如果其他 app（如开盘红）需要类似 manifest：
+1. 应建立独立的 manifest.py
+2. 使用自己的 package_name、launch_activity
+3. 使用自己的 target_hosts、target_paths
+4. 不应复用此文件的任何具体配置值
+
+【与多 app bridge 的关系】
+- 多 app bridge 通过 registry.load_app_manifest(name) 分发
+- registry 会调用对应 app adapter 的 build_stub_manifest()
+- 此文件是开盘啦的具体 manifest 实现
 """
 
 from __future__ import annotations

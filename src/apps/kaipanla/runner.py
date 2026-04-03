@@ -2,6 +2,34 @@
 开盘啦任务执行器。
 
 这一层只做任务编排和结果落盘，不直接承载解析规则。
+
+【APP-SPECIFIC 边界 - 这是开盘啦特有的执行器】
+- 这个文件是开盘啦特有的任务执行器
+- 不应被视为通用的多 app runner
+- 硬编码 import 开盘啦特有的模块（report、task）
+- 虽然使用了 registry 的 load_app_manifest/load_page_spec，但只用于开盘啦任务
+
+【依赖关系】
+- KaipanlaRunner 只接受 TaskSpec（开盘啦特有的任务规格）
+- 调用 write_run_report（开盘啦特有的报告生成）
+- 使用 XHSParser（假设开盘啦特有的请求结构）
+
+【禁止跨 app 复用的内容】
+- 整个执行器的逻辑和结构
+- 对 write_run_report 的硬编码依赖
+- 对 XHSParser 的假设（开盘啦特有的解析器）
+- TaskSpec/RunResult 的具体字段假设
+
+如果其他 app（如开盘红）需要类似执行器：
+1. 应建立独立的 runner.py
+2. 使用自己的 TaskSpec/RunResult（或建立自己的规格）
+3. 使用自己的 report 模块
+4. 使用自己的 parser（或适配请求结构）
+
+【与多 app bridge 的关系】
+- 多 app bridge 的通用入口是 scripts/kpl_tool.py
+- kpl_tool 通过 registry 分发到具体 app 的 runner
+- 此文件是开盘啦的具体执行实现，在分发路径的末端
 """
 
 from __future__ import annotations
