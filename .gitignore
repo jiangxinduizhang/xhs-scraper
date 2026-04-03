@@ -15,3 +15,5 @@ logs/
 reports/
 runs/artifacts/
 runs/archive/
+runs/*.json
+runs/*.task.json
