@@ -15,17 +15,22 @@ if str(ROOT) not in sys.path:
 
 from src.apps.kaipanla.agent_loop import build_round1_plan, decide_next_step
 from src.apps.kaipanla.exploration import build_exploration_result
-from src.apps.kaipanla.pages import list_pages
+from src.apps.kaipanla.agent_loop import build_round1_plan, decide_next_step
+from src.apps.kaipanla.exploration import build_exploration_result
 from src.apps.kaipanla.report import build_page_summary, render_run_report
 from src.apps.kaipanla.runner import run_task
 from src.apps.kaipanla.task import RunResult, TaskSpec
 from src.apps.kaipanla.verify import verify_run
+from src.apps.registry import get_app_spec, list_app_pages, list_apps
 
 
-def _load_task(task_path: str | None, preset: str | None = None) -> TaskSpec:
+def _load_task(task_path: str | None, preset: str | None = None, app: str | None = None) -> TaskSpec:
     if task_path:
-        return TaskSpec.load(task_path)
-    return TaskSpec.for_preset(preset)
+        task = TaskSpec.load(task_path)
+        if app and task.app != app:
+            raise ValueError(f"task app mismatch: task={task.app} cli={app}")
+        return task
+    return TaskSpec.for_preset(preset, app=app)
 
 
 def _parse_action_plan(action_plan: str | None) -> list[dict]:
@@ -41,6 +46,7 @@ def _load_exploration_task(
     text: str,
     preset: str | None = None,
     *,
+    app: str | None = None,
     navigation_hint: str = "",
     round_index: int = 1,
     max_rounds: int = 1,
@@ -49,7 +55,7 @@ def _load_exploration_task(
     capture_options: dict | None = None,
 ) -> TaskSpec:
     chosen = preset or "market_emotion"
-    task = TaskSpec.for_exploration(text, page=chosen, preset=chosen, navigation_hint=navigation_hint)
+    task = TaskSpec.for_exploration(text, page=chosen, preset=chosen, navigation_hint=navigation_hint, app=app)
     task.round_index = max(1, int(round_index or 1))
     task.max_rounds = max(1, int(max_rounds or 1))
     task.session_id = session_id or ""
@@ -61,7 +67,10 @@ def _load_exploration_task(
 
 
 def _task_meta(task: TaskSpec, *, used_default_preset: bool = False) -> dict:
+    app_spec = get_app_spec(task.app)
     return {
+        "app": task.app,
+        "app_name": app_spec.app_name,
         "preset": task.preset,
         "page": task.page,
         "modules": list(task.modules),
@@ -69,7 +78,8 @@ def _task_meta(task: TaskSpec, *, used_default_preset: bool = False) -> dict:
         "compare": task.compare,
         "interpretation_style": task.interpretation_style,
         "used_default_preset": used_default_preset,
-        "supported_pages": list_pages(),
+        "supported_apps": list_apps(),
+        "supported_pages": list_app_pages(task.app),
         "message": "当前按默认预设 market_emotion 执行" if used_default_preset else f"当前按预设 {task.preset} 执行",
     }
 
@@ -135,7 +145,7 @@ def _structured_failure(run: RunResult) -> dict | None:
 
 def cmd_capture(args) -> dict:
     used_default_preset = not args.task and not args.preset
-    task = _load_task(args.task, args.preset)
+    task = _load_task(args.task, args.preset, args.app)
     run = run_task(task)
     payload = {
         "ok": run.status in ("success", "partial"),
@@ -177,7 +187,7 @@ def cmd_report(args) -> dict:
     else:
         task_path = Path(args.run).with_suffix(".task.json")
         used_default_preset = not task_path.exists()
-        task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset)
+        task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset, app=args.app)
     report = render_run_report(task, run)
     payload = {
         "ok": True,
@@ -205,7 +215,7 @@ def cmd_latest(args) -> dict:
     run = _load_run(path)
     task_path = path.with_suffix(".task.json")
     used_default_preset = not task_path.exists()
-    task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset)
+    task = TaskSpec.load(task_path) if task_path.exists() else TaskSpec.for_preset(args.preset, app=args.app)
     payload = {
         "ok": True,
         "command": "latest",
@@ -261,6 +271,7 @@ def cmd_explore(args) -> dict:
     task = _load_exploration_task(
         args.text,
         args.preset,
+        app=args.app,
         navigation_hint=navigation_hint,
         round_index=round_index,
         max_rounds=max_rounds,
@@ -351,13 +362,14 @@ def cmd_explore(args) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Kaipanla machine-readable bridge")
+    parser = argparse.ArgumentParser(description="Kaipan-series machine-readable bridge")
     parser.add_argument("--pretty", action="store_true", help="pretty-print JSON")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_capture = sub.add_parser("capture", help="execute a capture task")
     p_capture.add_argument("--task", help="task JSON path")
+    p_capture.add_argument("--app", default="kaipanla", choices=list_apps(), help="target app")
     p_capture.add_argument("--preset", default="market_emotion", help="preset task name")
 
     p_verify = sub.add_parser("verify", help="verify a completed run")
@@ -367,18 +379,22 @@ def main(argv: list[str] | None = None) -> int:
     p_report = sub.add_parser("report", help="render a run report")
     p_report.add_argument("--run", required=True, help="run JSON path")
     p_report.add_argument("--task", help="task JSON path")
+    p_report.add_argument("--app", default="kaipanla", choices=list_apps(), help="target app")
     p_report.add_argument("--preset", default="market_emotion", help="preset task name")
 
     p_latest = sub.add_parser("latest", help="show the latest run")
     p_latest.add_argument("--runs-dir", default="runs", help="runs directory")
+    p_latest.add_argument("--app", default="kaipanla", choices=list_apps(), help="target app")
     p_latest.add_argument("--preset", default="market_emotion", help="fallback preset when task file is missing")
 
     p_status = sub.add_parser("status", help="verify the latest run")
     p_status.add_argument("--runs-dir", default="runs", help="runs directory")
+    p_status.add_argument("--app", default="kaipanla", choices=list_apps(), help="target app")
     p_status.add_argument("--preset", default="market_emotion", help="fallback preset when task file is missing")
 
     p_explore = sub.add_parser("explore", help="assistant-directed exploration")
     p_explore.add_argument("text", help="exploration target")
+    p_explore.add_argument("--app", default="kaipanla", choices=list_apps(), help="target app")
     p_explore.add_argument("--preset", default=None, help="explicit preset/page for exploration bootstrap")
     p_explore.add_argument("--navigation-hint", default="", help="human/AI supplied navigation hint for this exploration round")
     p_explore.add_argument("--round-index", type=int, default=1, help="exploration round index")

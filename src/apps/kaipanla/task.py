@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 import json
 
-from src.apps.kaipanla.pages import build_task_defaults
+from src.apps.registry import build_app_task_defaults, get_app_spec
 
 
 def _now_iso() -> str:
@@ -70,12 +70,17 @@ class TaskSpec:
         return cls(**filtered)
 
     @classmethod
-    def market_emotion_default(cls) -> "TaskSpec":
-        return cls.for_preset("market_emotion")
+    def market_emotion_default(cls, app: str | None = None) -> "TaskSpec":
+        return cls.for_preset("market_emotion", app=app)
 
     @classmethod
-    def for_preset(cls, preset: str | None) -> "TaskSpec":
-        defaults = build_task_defaults(preset)
+    def for_preset(cls, preset: str | None, *, app: str | None = None) -> "TaskSpec":
+        app_spec = get_app_spec(app)
+        defaults = build_app_task_defaults(app_spec.app_id, preset)
+        defaults.setdefault("app", app_spec.app_id)
+        defaults.setdefault("package_name", app_spec.package_name)
+        defaults.setdefault("launch_activity", app_spec.launch_activity)
+        defaults.setdefault("db_path", app_spec.db_path)
         defaults.setdefault("mode", "registered")
         defaults.setdefault("success_criteria", ["artifacts_complete"])
         return cls(**defaults)
@@ -88,9 +93,15 @@ class TaskSpec:
         page: str | None = None,
         preset: str | None = None,
         navigation_hint: str = "",
+        app: str | None = None,
     ) -> "TaskSpec":
+        app_spec = get_app_spec(app)
         chosen_page = page or preset or "market_emotion"
-        base = build_task_defaults(chosen_page)
+        base = build_app_task_defaults(app_spec.app_id, chosen_page)
+        base.setdefault("app", app_spec.app_id)
+        base.setdefault("package_name", app_spec.package_name)
+        base.setdefault("launch_activity", app_spec.launch_activity)
+        base.setdefault("db_path", app_spec.db_path)
         base.update(
             {
                 "mode": "exploration",

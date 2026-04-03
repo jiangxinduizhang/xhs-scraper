@@ -17,10 +17,9 @@ import shutil
 import xml.etree.ElementTree as ET
 
 from src import config
-from src.apps.kaipanla.manifest import build_stub_manifest
-from src.apps.kaipanla.pages import get_page_spec
 from src.apps.kaipanla.report import write_run_report
 from src.apps.kaipanla.task import RunResult, TaskSpec
+from src.apps.registry import load_app_manifest, load_page_spec
 from src.controller.device import (
     PreflightError,
     capture_screenshot,
@@ -123,7 +122,7 @@ class KaipanlaRunner:
         self._record_step(result, "launch_app", f"{self.task.package_name} {self.task.launch_activity}")
 
     def _run_task(self, result: RunResult) -> None:
-        spec = get_page_spec(self.task.page)
+        spec = load_page_spec(self.task.app, self.task.page)
         steps = self.task.action_plan or spec.navigation_steps
         self._run_navigation(result, steps)
 
@@ -193,7 +192,7 @@ class KaipanlaRunner:
                 })
 
     def _start_proxy(self) -> None:
-        manifest = build_stub_manifest()
+        manifest = load_app_manifest(self.task.app)
         env = os.environ.copy()
         env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
         env["XHS_DB_PATH"] = self.task.db_path
