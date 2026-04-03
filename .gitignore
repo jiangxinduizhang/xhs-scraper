@@ -10,3 +10,8 @@ dist/
 build/
 .claude/
 node_modules/
+.DS_Store
+logs/
+reports/
+runs/artifacts/
+runs/archive/
