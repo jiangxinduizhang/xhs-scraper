@@ -146,7 +146,7 @@ def _has_top_title_anchor(texts: list[str]) -> bool:
 
 
 def _infer_intent(result: ExplorationResult) -> str:
-    target = f"{result.target_hint}\n{result.task_id}"
+    target = f"{getattr(result, 'target_hint', '')}\n{getattr(result, 'task_id', '')}"
     if "龙虎榜" in target or "dragon-tiger" in target or "dragon_tiger" in target:
         return "dragon_tiger"
     if "市场情绪" in target or "market-emotion" in target or "market_emotion" in target:

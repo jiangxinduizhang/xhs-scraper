@@ -88,8 +88,8 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
     raw_record_count = int(request_facts.get("raw_record_count") or 0)
     candidate_count = len(structure_facts.get("candidate_structures") or [])
     noise_count = len(structure_facts.get("noise_structures") or [])
-    current_round = max(1, int(result.round_index or 1))
-    max_rounds = max(1, int(result.max_rounds or 1))
+    current_round = max(1, int(getattr(result, "round_index", 1) or 1))
+    max_rounds = max(1, int(getattr(result, "max_rounds", 1) or 1))
     judgement_bundle: JudgementBundle = judge_exploration(result)
     primary = judgement_bundle.primary
     judgement_dict = judgement_bundle.to_dict()
@@ -149,7 +149,7 @@ def decide_next_step(result: ExplorationResult) -> LoopDecision:
             missing_capability=primary.missing_capability,
         )
 
-    if primary.label in {"market_emotion_related_surface", "home_feed_dominant"} and "市场情绪" in (result.target_hint or ""):
+    if primary.label in {"market_emotion_related_surface", "home_feed_dominant"} and "市场情绪" in (getattr(result, "target_hint", "") or ""):
         return LoopDecision(
             decision="continue",
             reason="当前需要直接验证首页顶部‘市场情绪’入口是否能切到市场情绪页。",
