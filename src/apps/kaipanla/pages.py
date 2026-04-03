@@ -112,19 +112,14 @@ PAGE_SPECS: dict[str, PageSpec] = {
         notes=[
             "执行模板只负责页面动作与取证。",
             "动作记录不能直接当成已进入龙虎榜主块的证明。",
+            "避免在前置导航阶段使用 back；近期失败样本显示 back 可能把应用直接退回 launcher。",
+            "优先复用已验证最小路径：在首页稳定态直接点击底部/页面可见的 龙虎榜 入口。",
         ],
         navigation_steps=[
-            {"action": "back", "times": 3, "sleep": 0.8},
-            {"action": "tap_text_or_fallback", "text": "首页", "timeout": 2},
-            {"action": "record", "name": "entered_home_tab", "detail": "首页"},
-            {"action": "sleep", "seconds": 1.0},
-            {"action": "tap_text", "text": "行情", "timeout": 3},
-            {"action": "record", "name": "entered_market_tab", "detail": "行情"},
             {"action": "sleep", "seconds": 2.0},
             {"action": "tap_text", "text": "龙虎榜", "timeout": 3},
             {"action": "record", "name": "tap_dragon_tiger_tab", "detail": "龙虎榜"},
             {"action": "sleep", "seconds": 2.0},
-            {"action": "swipe_up", "times": 2, "sleep": 1.0},
         ],
     ),
 }
